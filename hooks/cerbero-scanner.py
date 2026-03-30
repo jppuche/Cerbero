@@ -16,7 +16,7 @@ import argparse
 import os
 from datetime import datetime, timezone
 
-SCANNER_VERSION = "1.1"
+SCANNER_VERSION = "1.0.0"
 
 # --- Suppression annotation detection (H-SEC-003) ---
 # Suppression annotations in scanned content are treated as evasion attempts.
