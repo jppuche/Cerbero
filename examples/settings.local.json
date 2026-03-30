@@ -1,0 +1,90 @@
+{
+  "enabledMcpjsonServers": [],
+  "disabledMcpjsonServers": ["filesystem"],
+
+  "permissions": {
+    "allow": [
+      "Bash(pwd)",
+      "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(npm run:*)",
+      "Bash(docker run:*)"
+    ],
+    "deny": [
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(rm -rf:*)",
+      "Read(./.env)",
+      "Read(./secrets/**)",
+      "Read(~/.ssh/**)",
+      "WebFetch"
+    ]
+  },
+
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/validate-prompt.py"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/pre-tool-security.py"
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/mcp-audit.py"
+          }
+        ]
+      },
+      {
+        "matcher": "WebFetch|^mcp__",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/untrusted-source-reminder.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/validate-tool-output.py"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/validate-tool-output.py"
+          }
+        ]
+      }
+    ]
+  }
+}

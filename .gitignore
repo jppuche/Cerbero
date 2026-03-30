@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+PROMPT_*.md
+.claude/security/mcp-audit.log
+.claude/security/invocation-counter.txt
