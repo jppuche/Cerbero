@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.0] - 2026-03-31
+
+### Security
+- **Invisible Unicode remediation** (14 Sentinel findings):
+  - validate-prompt.py: Variation Selector + Sneaky Bits detection and stripping
+  - validate-tool-output.py: full normalize-then-detect pipeline (ZW, NFKC, confusables, tag chars, bidi, VS, sneaky bits), _extract_text() expanded to 10 keys
+  - cerbero-scanner.py: 4 new scans (tag chars, bidi, VS + Glassworm decoder, sneaky bits), confusables normalization before injection scan
+- Procedural: invisible Unicode checks added to op-evaluate-skill (Step 3b) and op-evaluate-mcp (Step 1.7)
+- SKILL.md invisible characters reference expanded (7 codepoints → 6 categories)
+
 ## [1.0.0] - 2026-03-30
 
 ### Added

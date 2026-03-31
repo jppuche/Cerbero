@@ -5,7 +5,7 @@
 <!-- GitHub About: Security screening framework for Claude Code. Evaluates MCP servers and Skills before installation. Detects prompt injection, supply chain attacks, rug pulls, and known CVEs. Local-first, pure Python stdlib, zero dependencies. -->
 <!-- Topics: claude-code, mcp-security, prompt-injection, supply-chain-security, agent-skills, security-screening, owasp-mcp-top-10, hooks -->
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.8%2B-yellow)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
