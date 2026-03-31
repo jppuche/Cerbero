@@ -27,8 +27,14 @@ import base64
 # Normalization tables
 # ---------------------------------------------------------------------------
 
-# Zero-width characters — stripped before pattern matching (NOT blocked)
-ZERO_WIDTH_CHARS = re.compile(r"[\u200b\u200c\u200d\ufeff\u00ad\u2060\u180e]")
+# Zero-width / invisible characters — stripped before pattern matching (NOT blocked)
+# Includes classic ZW + Variation Selectors + Sneaky Bits for normalization.
+ZERO_WIDTH_CHARS = re.compile(
+    r"[\u200b\u200c\u200d\ufeff\u00ad\u2060\u180e"
+    r"\uFE00-\uFE0F"               # Variation Selectors 1-16
+    r"\U000E0100-\U000E01EF"       # Variation Selectors 17-256
+    r"\u2062\u2064]"               # Sneaky Bits (invisible times/plus)
+)
 ZW_WARN_THRESHOLD = 5
 
 # Cyrillic→Latin confusables (visually identical characters)
@@ -169,6 +175,17 @@ TAG_SMUGGLING_PATTERN = re.compile(r"[\U000E0020-\U000E007F]{3,}")
 BIDI_OVERRIDE_PATTERN = re.compile(
     r"[\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069]"
 )
+
+# Variation Selectors — VS1-16 (U+FE00-FE0F) + VS17-256 (U+E0100-E01EF)
+# Used by Glassworm campaign (Mar 2026, 400+ repos) for binary encoding.
+# 1 VS after a base char is legitimate (emoji presentation). 2+ consecutive = suspicious.
+VARIATION_SELECTOR_PATTERN = re.compile(
+    r"[\uFE00-\uFE0F\U000E0100-\U000E01EF]{2,}"
+)
+
+# Sneaky Bits — U+2062 (invisible times) / U+2064 (invisible plus)
+# Binary encoding technique (Rehberger, Mar 2025). 3+ consecutive = suspicious.
+SNEAKY_BITS_PATTERN = re.compile(r"[\u2062\u2064]{3,}")
 
 # ---------------------------------------------------------------------------
 # Comment extraction — scan for injection hidden in comments
@@ -334,6 +351,24 @@ def main():
         print(
             "Cerbero: blocked prompt — tag character sequence detected "
             "(possible smuggling)",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    # --- Step 5b: Variation Selector encoding (BLOCK) ---
+    if VARIATION_SELECTOR_PATTERN.search(prompt):
+        print(
+            "Cerbero: blocked prompt — variation selector sequence detected "
+            "(possible Glassworm-style encoding)",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    # --- Step 5c: Sneaky Bits binary encoding (BLOCK) ---
+    if SNEAKY_BITS_PATTERN.search(prompt):
+        print(
+            "Cerbero: blocked prompt — sneaky bits sequence detected "
+            "(possible binary encoding via invisible math operators)",
             file=sys.stderr,
         )
         sys.exit(2)

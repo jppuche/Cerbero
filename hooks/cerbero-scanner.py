@@ -14,9 +14,10 @@ import re
 import base64
 import argparse
 import os
+import unicodedata
 from datetime import datetime, timezone
 
-SCANNER_VERSION = "1.0.0"
+SCANNER_VERSION = "1.1.0"
 
 # --- Suppression annotation detection (H-SEC-003) ---
 # Suppression annotations in scanned content are treated as evasion attempts.
@@ -72,6 +73,44 @@ ZERO_WIDTH_CHARS = {
     0x2060: "WORD JOINER",
     0x180E: "MONGOLIAN VOWEL SEPARATOR",
 }
+
+# Tag characters (U+E0020-U+E007F) — 100% ASR for smuggling (Rehberger 2024).
+# 3+ consecutive = suspicious. Used in emoji tag sequences but exploited for
+# instruction smuggling in MCP tool descriptions (confirmed: Claude, Copilot, Cursor).
+TAG_CHAR_PATTERN = re.compile(r"[\U000E0020-\U000E007F]{3,}")
+
+# Bidi override characters — make text render in misleading order during review.
+BIDI_OVERRIDE_PATTERN = re.compile(
+    r"[\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069]"
+)
+
+# Variation Selectors — VS1-16 (U+FE00-FE0F) + VS17-256 (U+E0100-E01EF).
+# Glassworm campaign (Mar 2026, 400+ repos) used VS for binary encoding.
+# 2+ consecutive = suspicious (1 VS after base char is legitimate emoji modifier).
+VS_PATTERN = re.compile(r"[\uFE00-\uFE0F\U000E0100-\U000E01EF]{2,}")
+
+# Sneaky Bits — U+2062 (invisible times) / U+2064 (invisible plus).
+# Binary encoding technique (Rehberger, Mar 2025). 3+ consecutive = suspicious.
+SNEAKY_BITS_PATTERN = re.compile(r"[\u2062\u2064]{3,}")
+
+# Cyrillic/Greek→Latin confusables for normalization before injection scan.
+# Synced from validate-prompt.py.
+CONFUSABLES = str.maketrans({
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
+    "\u0441": "c", "\u0443": "y", "\u0445": "x", "\u04bb": "h",
+    "\u0456": "i", "\u0458": "j", "\u043a": "k", "\u043c": "m",
+    "\u043d": "n", "\u0442": "t", "\u0432": "v", "\u0437": "z",
+    "\u0410": "A", "\u0415": "E", "\u041e": "O", "\u0420": "P",
+    "\u0421": "C", "\u0423": "Y", "\u0425": "X", "\u0406": "I",
+    "\u041a": "K", "\u041c": "M", "\u041d": "N", "\u0422": "T",
+    "\u0412": "V",
+    "\u03B1": "a", "\u03BF": "o", "\u03B5": "e", "\u03B9": "i",
+    "\u03C1": "p",
+    "\u0391": "A", "\u0392": "B", "\u0395": "E", "\u0397": "H",
+    "\u0399": "I", "\u039A": "K", "\u039C": "M", "\u039D": "N",
+    "\u039F": "O", "\u03A1": "P", "\u03A4": "T", "\u03A5": "Y",
+    "\u03A7": "X",
+})
 
 # --- Tier 1: CSS hiding patterns ---
 
@@ -202,6 +241,151 @@ def scan_zero_width_chars(text):
                     "context": f"position {pos}",
                 })
     return findings
+
+
+def scan_tag_characters(text):
+    """Tier 1: Detect Unicode tag character sequences (C-SEC-003).
+
+    Tag chars (U+E0020-E007F) have 100% ASR for instruction smuggling
+    (Rehberger 2024, confirmed against Claude, Copilot, Cursor).
+    """
+    findings = []
+    for match in TAG_CHAR_PATTERN.finditer(text):
+        line_num = text[:match.start()].count("\n") + 1
+        length = len(match.group())
+        # Attempt decode: tag chars map to ASCII (U+E0041 = 'A')
+        decoded = "".join(chr(ord(c) - 0xE0000) for c in match.group()
+                         if 0xE0020 <= ord(c) <= 0xE007E)
+        findings.append({
+            "check": "tag_character_smuggling",
+            "severity": "CRITICAL",
+            "detail": f"{length} tag chars" + (f", decoded: '{decoded[:80]}'" if decoded.strip() else ""),
+            "line": line_num,
+            "context": decoded[:80] if decoded.strip() else f"[{length} invisible chars]",
+        })
+    return findings
+
+
+def scan_bidi_overrides(text):
+    """Tier 1: Detect bidirectional override characters (C-SEC-004)."""
+    findings = []
+    bidi_names = {
+        0x202A: "LRE", 0x202B: "RLE", 0x202C: "PDF", 0x202D: "LRO", 0x202E: "RLO",
+        0x2066: "LRI", 0x2067: "RLI", 0x2068: "FSI", 0x2069: "PDI",
+    }
+    for i, line in enumerate(text.splitlines(), 1):
+        for pos, char in enumerate(line):
+            cp = ord(char)
+            if cp in bidi_names:
+                findings.append({
+                    "check": "bidi_override",
+                    "severity": "HIGH",
+                    "detail": f"U+{cp:04X} ({bidi_names[cp]})",
+                    "line": i,
+                    "context": f"position {pos}",
+                })
+    return findings
+
+
+def _decode_variation_selectors(text):
+    """Decode Glassworm-style Variation Selector encoding.
+
+    Algorithm: VS1-16 (U+FE00-FE0F) → byte 0x00-0x0F
+               VS17-256 (U+E0100-E01EF) → byte 0x10-0xFF
+    Returns decoded bytes as string, or empty string if decode fails.
+    """
+    raw_bytes = []
+    for char in text:
+        cp = ord(char)
+        if 0xFE00 <= cp <= 0xFE0F:
+            raw_bytes.append(cp - 0xFE00)
+        elif 0xE0100 <= cp <= 0xE01EF:
+            raw_bytes.append(cp - 0xE0100 + 16)
+    if not raw_bytes:
+        return ""
+    try:
+        return bytes(raw_bytes).decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def scan_variation_selectors(text):
+    """Tier 1: Detect Variation Selector clusters + Glassworm decode (C-SEC-003, S-SEC-013).
+
+    Glassworm campaign (Mar 2026, 400+ repos): VS codepoints encode arbitrary bytes.
+    """
+    findings = []
+    for match in VS_PATTERN.finditer(text):
+        line_num = text[:match.start()].count("\n") + 1
+        length = len(match.group())
+        decoded = _decode_variation_selectors(match.group())
+        detail = f"{length} variation selectors"
+        if decoded.strip() and decoded.isprintable():
+            detail += f", Glassworm decode: '{decoded[:80]}'"
+            # Rescan decoded content for injection phrases
+            injection_hits = scan_injection_phrases(decoded)
+            if injection_hits:
+                detail += " [CONTAINS INJECTION]"
+        findings.append({
+            "check": "variation_selector_encoding",
+            "severity": "CRITICAL",
+            "detail": detail,
+            "line": line_num,
+            "context": decoded[:80] if decoded.strip() else f"[{length} VS chars]",
+            "contains_injection": bool(decoded.strip() and scan_injection_phrases(decoded)),
+        })
+    return findings
+
+
+def scan_sneaky_bits(text):
+    """Tier 1: Detect Sneaky Bits binary encoding (C-SEC-003).
+
+    U+2062 (invisible times) / U+2064 (invisible plus) used as 0/1 bits.
+    Technique demonstrated by Rehberger (Mar 2025).
+    """
+    findings = []
+    for match in SNEAKY_BITS_PATTERN.finditer(text):
+        line_num = text[:match.start()].count("\n") + 1
+        length = len(match.group())
+        # Attempt binary decode: U+2062=0, U+2064=1
+        bits = "".join("0" if ord(c) == 0x2062 else "1" for c in match.group())
+        decoded = ""
+        if len(bits) >= 8:
+            try:
+                decoded = "".join(chr(int(bits[i:i+8], 2))
+                                  for i in range(0, len(bits) - 7, 8)
+                                  if int(bits[i:i+8], 2) > 0)
+            except (ValueError, OverflowError):
+                pass
+        detail = f"{length} sneaky bits chars"
+        if decoded.strip() and decoded.isprintable():
+            detail += f", decoded: '{decoded[:80]}'"
+        findings.append({
+            "check": "sneaky_bits_encoding",
+            "severity": "HIGH",
+            "detail": detail,
+            "line": line_num,
+            "context": decoded[:80] if decoded.strip() else f"[{length} invisible chars]",
+        })
+    return findings
+
+
+def _normalize_for_injection_scan(text):
+    """Normalize text for injection phrase detection (C-SEC-005).
+
+    Strips ZW chars, applies NFKC, translates confusables.
+    Used to catch obfuscated injection phrases.
+    """
+    # Strip all known invisible characters
+    zw_re = re.compile(
+        r"[\u200b\u200c\u200d\ufeff\u00ad\u2060\u180e"
+        r"\uFE00-\uFE0F\U000E0100-\U000E01EF"
+        r"\u2062\u2064"
+        r"\U000E0020-\U000E007F]"
+    )
+    cleaned = zw_re.sub("", text)
+    nfkc = unicodedata.normalize("NFKC", cleaned)
+    return nfkc.translate(CONFUSABLES)
 
 
 def scan_html_comments(text):
@@ -371,8 +555,14 @@ def compute_verdict(findings):
         f["check"] == "html_comment" and f.get("contains_injection")
         for f in findings
     )
+    has_tag_smuggling = any(f["check"] == "tag_character_smuggling" for f in findings)
+    has_vs_injection = any(
+        f["check"] == "variation_selector_encoding" and f.get("contains_injection")
+        for f in findings
+    )
 
-    if has_injection or has_base64_injection or has_html_injection:
+    if (has_injection or has_base64_injection or has_html_injection
+            or has_tag_smuggling or has_vs_injection):
         return "REJECT"
 
     # Count distinct check categories
@@ -390,11 +580,27 @@ def run_scan(text, target_name):
     all_findings.extend(scan_injection_phrases(text))
     all_findings.extend(scan_base64_payloads(text))
     all_findings.extend(scan_zero_width_chars(text))
+    # Unicode attack detection (C-SEC-003/004/005, S-SEC-013)
+    all_findings.extend(scan_tag_characters(text))
+    all_findings.extend(scan_bidi_overrides(text))
+    all_findings.extend(scan_variation_selectors(text))
+    all_findings.extend(scan_sneaky_bits(text))
     all_findings.extend(scan_html_comments(text))
     all_findings.extend(scan_css_hiding(text))
     all_findings.extend(scan_encoding_red_flags(text))
     all_findings.extend(scan_tool_schema_red_flags(text))
     all_findings.extend(scan_data_acquisition(text))
+
+    # C-SEC-005: Also scan NORMALIZED text for obfuscated injection phrases
+    normalized = _normalize_for_injection_scan(text)
+    if normalized != text:
+        norm_injections = scan_injection_phrases(normalized)
+        # Only add if they weren't already caught in raw scan
+        raw_injection_lines = {f["line"] for f in all_findings if f["check"] == "injection_phrase"}
+        for finding in norm_injections:
+            if finding["line"] not in raw_injection_lines:
+                finding["detail"] += " (detected after Unicode normalization)"
+                all_findings.append(finding)
 
     critical = sum(1 for f in all_findings if f["severity"] == "CRITICAL")
     high = sum(1 for f in all_findings if f["severity"] == "HIGH")
