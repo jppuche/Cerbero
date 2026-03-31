@@ -6,7 +6,6 @@ description: >-
   a Skill, verifying existing MCP servers for rug pulls, running security
   audits, or when the user mentions "check my MCPs", "verify", "audit",
   or "security check".
-allowed-tools: Read, Bash, Glob, Grep, WebSearch, WebFetch
 ---
 
 # Cerbero — Security Framework for Skills and MCP Servers
