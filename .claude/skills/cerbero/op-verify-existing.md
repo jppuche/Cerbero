@@ -2,7 +2,7 @@
 
 Trigger: Before each work session (recommended), on user request, or on schedule.
 Input: None (uses baseline files).
-Execution agent: Claude (active instance)
+Execution agent: Sentinel
 
 ---
 

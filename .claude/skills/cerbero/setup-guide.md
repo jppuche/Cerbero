@@ -1,4 +1,4 @@
-# Cerbero — Setup Guide (Human Only)
+# Cerbero — Phase A: Setup Guide (Human Only)
 
 This document is for human configuration. Do not load in agent context.
 
@@ -39,52 +39,35 @@ mcp-scan (Invariant Labs) was acquired by Snyk in June 2025. v0.3.0 is unmaintai
 
 > **Note:** For most users, Cerbero local tiers + cisco-ai-mcp-scanner (if needed) provide comprehensive coverage. Additional tools add defense-in-depth for high-security environments.
 
-## A.2 — Install Cerbero
+> Recommended for first session with any HIGH-risk MCP server.
 
-Clone the Cerbero repository:
+## A.2 — Install Cerbero Skill
 
-```bash
-git clone https://github.com/jppuche/Cerbero.git
-cd Cerbero
-```
+Copy the `cerbero/` directory to your preferred skills location:
 
-### Option 1: Per-project installation
-
-Copy the skill and hooks to your project:
-
+**Personal (all projects):**
 ```powershell
-# Skill
-Copy-Item -Recurse .claude/skills/cerbero/ <your-project>/.claude/skills/cerbero/
-
-# Hooks
-New-Item -ItemType Directory -Force <your-project>/.claude/hooks
-Copy-Item hooks/*.py <your-project>/.claude/hooks/
-
-# Security directory + trusted publishers
-New-Item -ItemType Directory -Force <your-project>/.claude/security
-Copy-Item security/trusted-publishers.txt <your-project>/.claude/security/
+Copy-Item -Recurse cerbero/ ~/.claude/skills/cerbero/
 ```
 
-### Option 2: Global installation (all projects)
-
+**Per-project:**
 ```powershell
-# Skill (global)
-Copy-Item -Recurse .claude/skills/cerbero/ ~/.claude/skills/cerbero/
-
-# Hooks (global — configure in ~/.claude/settings.json)
-New-Item -ItemType Directory -Force ~/.claude/hooks
-Copy-Item hooks/*.py ~/.claude/hooks/
+Copy-Item -Recurse cerbero/ .claude/skills/cerbero/
 ```
 
-For per-project security artifacts, still create in each project:
+Then create the runtime security directory:
 ```powershell
 New-Item -ItemType Directory -Force .claude/security
-Copy-Item security/trusted-publishers.txt .claude/security/
+```
+
+Copy the default trusted publishers list to the project:
+```powershell
+Copy-Item ~/.claude/skills/cerbero/trusted-publishers.txt .claude/security/trusted-publishers.txt
 ```
 
 ## A.3 — Define Permission Policy
 
-File: `.claude/settings.local.json` (per-project) or `~/.claude/settings.json` (global)
+File: `.claude/settings.local.json`
 
 ```jsonc
 {
@@ -120,7 +103,7 @@ Add each MCP server to `enabledMcpjsonServers` only after it passes Cerbero eval
 
 ## A.4 — Configure Security Hooks
 
-Add to your settings file (see `examples/settings.local.json` for a complete example):
+Add to `.claude/settings.local.json`:
 
 ```jsonc
 {
@@ -154,15 +137,6 @@ Add to your settings file (see `examples/settings.local.json` for a complete exa
             "command": "python .claude/hooks/mcp-audit.py"
           }
         ]
-      },
-      {
-        "matcher": "WebFetch|^mcp__",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python .claude/hooks/untrusted-source-reminder.py"
-          }
-        ]
       }
     ],
     "PostToolUse": [
@@ -179,15 +153,48 @@ Add to your settings file (see `examples/settings.local.json` for a complete exa
 }
 ```
 
-> **NOTE:** For global installation, replace `.claude/hooks/` with `~/.claude/hooks/` in all command paths.
+> **NOTE:** The PostToolUse hook scans external tool outputs (WebFetch, MCP) for format injection tags and base64-obfuscated payloads. It warns via additionalContext — never blocks. Also add `untrusted-source-reminder.py` as a PreToolUse hook on the same matchers to reinforce Claude's safety training before processing external content.
 
-> **NOTE:** The PostToolUse hook scans external tool outputs for format injection tags and base64-obfuscated payloads. It warns via additionalContext — never blocks.
+## A.4b — Install Cerbero Hook Scripts
+
+Copy the hook templates from the skill directory to your project:
+
+**If skill is personal (~/.claude/skills/cerbero/):**
+```powershell
+New-Item -ItemType Directory -Force .claude/hooks
+Copy-Item ~/.claude/skills/cerbero/hooks/validate-prompt.py .claude/hooks/
+Copy-Item ~/.claude/skills/cerbero/hooks/pre-tool-security.py .claude/hooks/
+Copy-Item ~/.claude/skills/cerbero/hooks/mcp-audit.py .claude/hooks/
+Copy-Item ~/.claude/skills/cerbero/hooks/cerbero-scanner.py .claude/hooks/
+Copy-Item ~/.claude/skills/cerbero/hooks/untrusted-source-reminder.py .claude/hooks/
+Copy-Item ~/.claude/skills/cerbero/hooks/validate-tool-output.py .claude/hooks/
+```
+
+**If skill is per-project (.claude/skills/cerbero/):**
+```powershell
+New-Item -ItemType Directory -Force .claude/hooks
+Copy-Item .claude/skills/cerbero/hooks/validate-prompt.py .claude/hooks/
+Copy-Item .claude/skills/cerbero/hooks/pre-tool-security.py .claude/hooks/
+Copy-Item .claude/skills/cerbero/hooks/mcp-audit.py .claude/hooks/
+Copy-Item .claude/skills/cerbero/hooks/cerbero-scanner.py .claude/hooks/
+Copy-Item .claude/skills/cerbero/hooks/untrusted-source-reminder.py .claude/hooks/
+Copy-Item .claude/skills/cerbero/hooks/validate-tool-output.py .claude/hooks/
+```
+
+Verify they run correctly:
+
+```powershell
+echo '{"prompt":"test"}' | python .claude/hooks/validate-prompt.py
+echo '{"tool_input":{"command":"echo hello"}}' | python .claude/hooks/pre-tool-security.py
+```
+
+> **NOTE:** Hook scripts run with your user permissions, not the agent's. They are lightweight (~30-40 lines each) and auditable. Review them before installing.
 
 ## A.5 — Trusted Publishers List
 
 ### Default list
 
-The default `security/trusted-publishers.txt` contains:
+If you didn't copy the default in A.2, create `.claude/security/trusted-publishers.txt`:
 
 ```
 anthropic
@@ -216,6 +223,7 @@ The trusted publishers list is intentionally minimal. A publisher on this list a
 1. Evaluate the MCP server/skill with Cerbero first (`/cerbero evaluate-mcp <pkg>`).
 2. If APPROVED after full evaluation, verify the publisher meets **all three** criteria above.
 3. Add to `.claude/security/trusted-publishers.txt` (one name per line).
+4. Document the rationale in your project's `docs/DECISIONS.md`.
 
 All other publishers (including vercel, microsoft, supabase, etc.) are evaluated case-by-case with Cerbero. Being a well-known company does not exempt from evaluation.
 
@@ -246,11 +254,12 @@ Before installing any MCP server or Skill, execute Cerbero evaluation.
 - [ ] `uv` installed (for tool management)
 - [ ] (Recommended for 5+ MCPs) `cisco-ai-mcp-scanner` installed via `uv tool install --python 3.13 cisco-ai-mcp-scanner`
 - [ ] Cerbero skill installed (`~/.claude/skills/cerbero/` or `.claude/skills/cerbero/`)
-- [ ] Cerbero hook scripts installed in `.claude/hooks/` (or `~/.claude/hooks/`)
 - [ ] `.claude/security/` directory created
 - [ ] `.claude/security/trusted-publishers.txt` exists
+- [ ] Cerbero hook scripts installed in `.claude/hooks/` (A.4b)
 - [ ] Baseline files generated (if MCPs already installed)
-- [ ] Settings file has permissions and hooks configured
+- [ ] `.claude/settings.local.json` has permissions and hooks
 - [ ] `CLAUDE.md` references Cerbero
 - [ ] Claude Code is latest stable version
+- [ ] PostToolUse indirect injection scanner (`validate-tool-output.py`) + PreToolUse reminder (`untrusted-source-reminder.py`) installed (deployed by default)
 - [ ] (Optional) Additional external scanners or sandbox-runtime for defense-in-depth

@@ -2,7 +2,7 @@
 
 Trigger: Monthly, or on user request.
 Input: None.
-Execution agent: Claude (active instance)
+Execution agent: Sentinel
 
 ---
 
