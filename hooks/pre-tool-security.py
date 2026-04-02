@@ -6,7 +6,7 @@ Scope: catches accidental dangerous commands and basic static evasion. Dynamic
 evasion (variable expansion, aliases, IFS tricks) is out of scope — use Claude
 Code's sandbox mode for OS-level enforcement.
 
-Fail-open: parse errors → allow (consistent with all Cerbero hooks).
+Fail-open: parse errors → allow (consistent with all Ignite hooks).
 """
 import sys
 import json

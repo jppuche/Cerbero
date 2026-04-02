@@ -74,10 +74,11 @@ ZERO_WIDTH_CHARS = {
     0x180E: "MONGOLIAN VOWEL SEPARATOR",
 }
 
-# Tag characters (U+E0020-U+E007F) — 100% ASR for smuggling (Rehberger 2024).
-# 3+ consecutive = suspicious. Used in emoji tag sequences but exploited for
-# instruction smuggling in MCP tool descriptions (confirmed: Claude, Copilot, Cursor).
-TAG_CHAR_PATTERN = re.compile(r"[\U000E0020-\U000E007F]{3,}")
+# Tag characters (U+E0000-U+E007F) — 100% ASR for smuggling (Rehberger 2024).
+# 3+ consecutive = suspicious. Full block includes U+E0001 (LANGUAGE TAG).
+# Used in emoji tag sequences but exploited for instruction smuggling
+# in MCP tool descriptions (confirmed: Claude, Copilot, Cursor).
+TAG_CHAR_PATTERN = re.compile(r"[\U000E0000-\U000E007F]{3,}")
 
 # Bidi override characters — make text render in misleading order during review.
 BIDI_OVERRIDE_PATTERN = re.compile(
@@ -246,7 +247,7 @@ def scan_zero_width_chars(text):
 def scan_tag_characters(text):
     """Tier 1: Detect Unicode tag character sequences (C-SEC-003).
 
-    Tag chars (U+E0020-E007F) have 100% ASR for instruction smuggling
+    Tag chars (U+E0000-E007F) have 100% ASR for instruction smuggling
     (Rehberger 2024, confirmed against Claude, Copilot, Cursor).
     """
     findings = []
@@ -255,7 +256,7 @@ def scan_tag_characters(text):
         length = len(match.group())
         # Attempt decode: tag chars map to ASCII (U+E0041 = 'A')
         decoded = "".join(chr(ord(c) - 0xE0000) for c in match.group()
-                         if 0xE0020 <= ord(c) <= 0xE007E)
+                         if 0xE0000 <= ord(c) <= 0xE007F)
         findings.append({
             "check": "tag_character_smuggling",
             "severity": "CRITICAL",
@@ -381,7 +382,7 @@ def _normalize_for_injection_scan(text):
         r"[\u200b\u200c\u200d\ufeff\u00ad\u2060\u180e"
         r"\uFE00-\uFE0F\U000E0100-\U000E01EF"
         r"\u2062\u2064"
-        r"\U000E0020-\U000E007F]"
+        r"\U000E0000-\U000E007F]"
     )
     cleaned = zw_re.sub("", text)
     nfkc = unicodedata.normalize("NFKC", cleaned)

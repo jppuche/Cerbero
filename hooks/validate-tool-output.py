@@ -75,8 +75,9 @@ CONFUSABLES = str.maketrans({
     "\u03A7": "X",
 })
 
-# Tag characters (U+E0020-U+E007F) — 100% ASR for smuggling (Rehberger 2024)
-TAG_SMUGGLING_PATTERN = re.compile(r"[\U000E0020-\U000E007F]{3,}")
+# Tag characters (U+E0000-U+E007F) — 100% ASR for smuggling (Rehberger 2024)
+# Full block includes U+E0001 (LANGUAGE TAG) used in attacks (Cisco AI Defense).
+TAG_SMUGGLING_PATTERN = re.compile(r"[\U000E0000-\U000E007F]{3,}")
 
 # Bidi override characters — misleading text rendering
 BIDI_OVERRIDE_PATTERN = re.compile(
@@ -183,7 +184,7 @@ def _check_unicode_attacks(raw_text):
     if TAG_SMUGGLING_PATTERN.search(raw_text):
         findings.append((
             "TAG_SMUGGLING",
-            "Unicode tag character sequence detected (U+E0020-E007F) — "
+            "Unicode tag character sequence detected (U+E0000-E007F) — "
             "confirmed attack vector for instruction smuggling"
         ))
 

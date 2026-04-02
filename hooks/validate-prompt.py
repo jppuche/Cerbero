@@ -167,9 +167,10 @@ BASE64_MAX_DECODE_DEPTH = 3
 # Unicode threat detection
 # ---------------------------------------------------------------------------
 
-# Tag characters (U+E0020-U+E007F) — used for emoji tag sequences but exploited
+# Tag characters (U+E0000-U+E007F) — used for emoji tag sequences but exploited
 # for smuggling with 100% ASR. 3+ consecutive = suspicious.
-TAG_SMUGGLING_PATTERN = re.compile(r"[\U000E0020-\U000E007F]{3,}")
+# Full block includes U+E0001 (LANGUAGE TAG) used in attacks (Cisco AI Defense).
+TAG_SMUGGLING_PATTERN = re.compile(r"[\U000E0000-\U000E007F]{3,}")
 
 # Bidi override characters — can make text render in misleading order
 BIDI_OVERRIDE_PATTERN = re.compile(
