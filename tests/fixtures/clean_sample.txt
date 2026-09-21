@@ -1,0 +1,22 @@
+# Synthetic test fixture (safe content)
+
+This file is a synthetic, deliberately harmless fixture used by
+tests/test_cli.py to exercise the Cerbero scanner CLI entry point
+against a clean target. It is written to avoid every pattern the
+scanner is designed to catch.
+
+If a test ever needs a hostile payload (encoded text, invisible
+characters, HTML comments with instructions, and so on), that payload
+belongs inline inside the test file, built with chr() or escape
+sequences at runtime. Nothing like that should be committed as a
+fixture file in this repository.
+
+Example neutral content follows, a short grocery list:
+
+- oranges
+- bread
+- rice
+- coffee beans
+- olive oil
+
+End of fixture.

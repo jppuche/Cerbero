@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Unit test suite (`tests/`): one positive + one negative case for each of the 13 `scan_*` detectors in `hooks/cerbero-scanner.py`, plus CLI entry point tests (`--file`, `--stdin`, `--strip-only`, missing-file, no-args). Stdlib `unittest` only, 37 tests total
+- Two tests document (not fix) current scanner behavior found while writing the suite: `run_scan()` does not forward `file_path` into `scan_css_hiding()`, so its stylesheet-skip mitigation is unreachable from the real pipeline/CLI; and `main()` exits 0 unconditionally regardless of verdict, so a REJECT is only visible in the JSON body, not via exit code
+- `.github/workflows/tests.yml`: runs the suite on `ubuntu-latest` against Python 3.11 and 3.12
+- README "Testing" section
+
 ## [1.1.0] - 2026-03-31
 
 ### Security

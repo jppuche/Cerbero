@@ -32,6 +32,7 @@ MCP servers execute code with your permissions. Skills inject instructions into 
 - [Threat Reference](#threat-reference)
 - [Project Values](#project-values)
 - [Limitations](#limitations)
+- [Testing](#testing)
 - [Contributing](#contributing)
 - [Acknowledgments](#acknowledgments)
 - [License](#license)
@@ -361,6 +362,16 @@ Cerbero's detection maps to the [OWASP MCP Top 10](https://owasp.org/www-project
 
 > [!IMPORTANT]
 > Cerbero reduces risk. It does not eliminate it. Use it alongside sandbox mode, careful permission policies, and your own judgment.
+
+## Testing
+
+Unit tests cover all 13 detectors in `hooks/cerbero-scanner.py` (one positive + one negative case each) plus the CLI entry point. Stdlib only, no extra dependencies:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+CI runs the same command on `ubuntu-latest` against Python 3.11 and 3.12 (`.github/workflows/tests.yml`).
 
 ## Contributing
 
