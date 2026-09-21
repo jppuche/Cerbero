@@ -5,12 +5,15 @@ the README's Quick Start / Verify installation examples do, so this
 exercises argparse wiring, file/stdin reading, and the actual stdout
 + exit code contract, not just the internal functions.
 
-The only fixture file used is tests/fixtures/clean_sample.txt: a
-synthetic, clearly-marked-as-such, deliberately harmless file (a
-negative case). Any text that should trigger a detector is assembled
-at runtime from fragments (see _cat() below) and piped in via --stdin,
-not committed as a fixture, and not spelled out as one contiguous,
-directly matchable run of characters in this file's own raw source.
+Two fixture files are used, both synthetic and deliberately harmless
+(negative cases): tests/fixtures/clean_sample.txt and
+tests/fixtures/stylesheet_sample.css (the latter exercises the M-1
+stylesheet-skip mitigation through the real --file/CLI path, per
+TestCliFileMode.test_real_css_file_is_not_flagged_for_hiding). Any
+text that should trigger a detector is assembled at runtime from
+fragments (see _cat() below) and piped in via --stdin, not committed
+as a fixture, and not spelled out as one contiguous, directly
+matchable run of characters in this file's own raw source.
 """
 import json
 import os
@@ -22,6 +25,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCANNER_PATH = os.path.join(REPO_ROOT, "hooks", "cerbero-scanner.py")
 FIXTURES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 CLEAN_FIXTURE = os.path.join(FIXTURES_DIR, "clean_sample.txt")
+CSS_FIXTURE = os.path.join(FIXTURES_DIR, "stylesheet_sample.css")
 
 
 def _cat(*parts):
@@ -64,11 +68,24 @@ class TestCliFileMode(unittest.TestCase):
         self.assertIn("error", payload)
         self.assertIn("not found", payload["error"].lower())
 
+    def test_real_css_file_is_not_flagged_for_hiding(self):
+        """Fix (M-1 propagation): a genuine .css file scanned through
+        the real --file/CLI pipeline is no longer flagged for its own
+        hide-via-CSS rules, since run_scan() now forwards the file
+        path into scan_css_hiding()."""
+        result = _run(["--file", CSS_FIXTURE])
+        report = json.loads(result.stdout)
+        css_findings = [f for f in report["findings"] if f["check"] == "css_hiding"]
+        self.assertEqual(css_findings, [])
+        self.assertEqual(report["summary"]["verdict"], "CLEAN")
+        self.assertEqual(result.returncode, 0)
+
 
 class TestCliStdinMode(unittest.TestCase):
     def test_positive_stdin_detects_injection(self):
+        # Exit-code assertions for this same payload live in
+        # TestCliExitCode below.
         result = _run(["--stdin"], input_text=_INJECTION_PAYLOAD)
-        self.assertEqual(result.returncode, 0)
         report = json.loads(result.stdout)
         self.assertEqual(report["target"], "stdin")
         self.assertEqual(report["summary"]["verdict"], "REJECT")
@@ -81,24 +98,24 @@ class TestCliStdinMode(unittest.TestCase):
         self.assertEqual(report["summary"]["verdict"], "CLEAN")
 
 
-class TestCliExitCodeQuirk(unittest.TestCase):
-    def test_exit_code_does_not_reflect_verdict(self):
-        """Documents current behavior, not asserted as desirable: main()
-        unconditionally calls sys.exit(0) after a completed scan (see
-        the end of main() in cerbero-scanner.py), no matter what the
-        computed verdict is. A REJECT verdict (a match found) still
-        exits 0 — only the JSON body's summary.verdict field carries
-        the signal. A caller that gates on the process exit code
-        instead of parsing stdout would silently let a REJECTed
-        target through.
-        """
+class TestCliExitCode(unittest.TestCase):
+    """Fix: main() now maps the computed verdict to the process exit
+    code (see verdict_exit_code() in cerbero-scanner.py) instead of
+    unconditionally exiting 0. A caller that gates on the process exit
+    code instead of parsing stdout now correctly sees a non-zero code
+    on REJECT."""
+
+    def test_reject_exits_two(self):
         result = _run(["--stdin"], input_text=_INJECTION_PAYLOAD)
         report = json.loads(result.stdout)
         self.assertEqual(report["summary"]["verdict"], "REJECT")
-        self.assertEqual(
-            result.returncode, 0,
-            "Documents current (surprising) behavior: exit code stays 0 on REJECT",
-        )
+        self.assertEqual(result.returncode, 2)
+
+    def test_clean_exits_zero(self):
+        result = _run(["--stdin"], input_text="a perfectly ordinary line of text")
+        report = json.loads(result.stdout)
+        self.assertEqual(report["summary"]["verdict"], "CLEAN")
+        self.assertEqual(result.returncode, 0)
 
 
 class TestCliNoArguments(unittest.TestCase):

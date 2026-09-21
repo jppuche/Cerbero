@@ -17,7 +17,7 @@ import os
 import unicodedata
 from datetime import datetime, timezone
 
-SCANNER_VERSION = "1.1.0"
+SCANNER_VERSION = "1.2.0"
 
 # --- Suppression annotation detection (H-SEC-003) ---
 # Suppression annotations in scanned content are treated as evasion attempts.
@@ -574,6 +574,29 @@ def compute_verdict(findings):
     return "SUSPICIOUS"
 
 
+# Maps a scan verdict to a process exit code, so a caller can gate on
+# return code instead of having to parse the JSON report.
+# REQUIRES_HUMAN_REVIEW is not currently emitted by compute_verdict()
+# above (its "2+ categories" branch escalates unconditionally, every
+# time, straight to REJECT) -- it is the skill-level verdict documented
+# in README's "Detection Tiers > Multi-scanner logic" section. Mapped
+# here defensively so the exit code stays correct if the scanner
+# itself ever starts distinguishing it from REJECT.
+VERDICT_EXIT_CODES = {
+    "REJECT": 2,
+    "REQUIRES_HUMAN_REVIEW": 1,
+}
+
+
+def verdict_exit_code(verdict):
+    """Return the process exit code for a given scan verdict.
+
+    2 = REJECT, 1 = REQUIRES_HUMAN_REVIEW, 0 otherwise (CLEAN, SUSPICIOUS,
+    or any unrecognized value).
+    """
+    return VERDICT_EXIT_CODES.get(verdict, 0)
+
+
 def run_scan(text, target_name):
     """Run all scanner checks and produce JSON report."""
     all_findings = []
@@ -587,7 +610,9 @@ def run_scan(text, target_name):
     all_findings.extend(scan_variation_selectors(text))
     all_findings.extend(scan_sneaky_bits(text))
     all_findings.extend(scan_html_comments(text))
-    all_findings.extend(scan_css_hiding(text))
+    # M-1: forward target_name so a real stylesheet (.css/.html/...) is
+    # skipped instead of flagged for its own expected hiding-via-CSS rules.
+    all_findings.extend(scan_css_hiding(text, target_name))
     all_findings.extend(scan_encoding_red_flags(text))
     all_findings.extend(scan_tool_schema_red_flags(text))
     all_findings.extend(scan_data_acquisition(text))
@@ -655,7 +680,7 @@ def main():
 
     report = run_scan(text, target_name)
     print(json.dumps(report, indent=2))
-    sys.exit(0)
+    sys.exit(verdict_exit_code(report["summary"]["verdict"]))
 
 
 if __name__ == "__main__":

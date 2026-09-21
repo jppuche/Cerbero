@@ -295,31 +295,13 @@ class TestScanDataAcquisition(unittest.TestCase):
 
 
 class TestRunScanQuirks(unittest.TestCase):
-    """Two counter-intuitive behaviors observed while writing this suite.
+    """One remaining fixed-and-pinned behavior from the original suite.
 
-    Per task instructions these are pinned down with tests documenting
-    current behavior, not changed here — and reported separately.
+    The stylesheet-skip quirk documented here previously is now fixed
+    (see TestRunScanCssPathPropagation below) — run_scan() forwards
+    target_name into scan_css_hiding(). The exit-code quirk is now
+    covered in test_cli.py (TestCliExitCode).
     """
-
-    def test_run_scan_does_not_skip_stylesheets_for_css_hiding(self):
-        """scan_css_hiding() accepts a file_path to skip real stylesheets
-        (its own docstring calls this 'M-1'), but run_scan() calls it as
-        `scan_css_hiding(text)` with no file_path/target_name forwarded
-        (see run_scan, and main()'s `report = run_scan(text, target_name)`
-        which also does not thread target_name into scan_css_hiding).
-        A genuine .css file scanned through the real pipeline (and
-        therefore through the CLI) still gets flagged for the
-        hide-via-zero-size / none-display style hiding rules. The M-1
-        mitigation is live code that run_scan() does not reach.
-        """
-        report = cs.run_scan(_CSS_DISPLAY_NONE_LINE, "style.css")
-        css_findings = [f for f in report["findings"] if f["check"] == "css_hiding"]
-        self.assertEqual(
-            len(css_findings), 1,
-            "Documents current behavior: run_scan() does not forward "
-            "file_path, so the stylesheet skip in scan_css_hiding() "
-            "is unreachable via run_scan()/the CLI.",
-        )
 
     def test_compute_verdict_rejects_on_two_distinct_categories(self):
         """compute_verdict() escalates to REJECT once 2+ distinct check
@@ -332,6 +314,54 @@ class TestRunScanQuirks(unittest.TestCase):
         report = cs.run_scan(text, "sample.txt")
         self.assertEqual(report["summary"]["verdict"], "REJECT")
         self.assertEqual(report["summary"]["critical"], 0)
+
+
+class TestRunScanCssPathPropagation(unittest.TestCase):
+    """Fix: run_scan() now forwards target_name into scan_css_hiding(),
+    so the M-1 stylesheet-skip mitigation is reachable via run_scan()
+    and therefore via the real --file CLI pipeline, not just when
+    scan_css_hiding() is called directly."""
+
+    def test_real_stylesheet_path_is_skipped(self):
+        report = cs.run_scan(_CSS_DISPLAY_NONE_LINE, "style.css")
+        css_findings = [f for f in report["findings"] if f["check"] == "css_hiding"]
+        self.assertEqual(css_findings, [])
+        self.assertEqual(report["summary"]["verdict"], "CLEAN")
+
+    def test_non_stylesheet_path_still_flags_css_hiding(self):
+        report = cs.run_scan(_CSS_DISPLAY_NONE_LINE, "sample.txt")
+        css_findings = [f for f in report["findings"] if f["check"] == "css_hiding"]
+        self.assertEqual(len(css_findings), 1)
+
+    def test_stdin_target_name_still_flags_css_hiding(self):
+        """stdin mode passes target_name="stdin" (no extension), which
+        does not match the skip list, so detection behaves as before
+        the fix."""
+        report = cs.run_scan(_CSS_DISPLAY_NONE_LINE, "stdin")
+        css_findings = [f for f in report["findings"] if f["check"] == "css_hiding"]
+        self.assertEqual(len(css_findings), 1)
+
+
+class TestVerdictExitCode(unittest.TestCase):
+    """Fix: exit code now reflects the verdict instead of being pinned
+    to 0 unconditionally (see test_cli.py TestCliExitCode for the
+    subprocess-level version)."""
+
+    def test_reject_is_two(self):
+        self.assertEqual(cs.verdict_exit_code("REJECT"), 2)
+
+    def test_requires_human_review_is_one(self):
+        """Not currently produced by compute_verdict() — mapped
+        defensively per README's documented (but not yet implemented)
+        REQUIRES_HUMAN_REVIEW verdict level."""
+        self.assertEqual(cs.verdict_exit_code("REQUIRES_HUMAN_REVIEW"), 1)
+
+    def test_clean_and_suspicious_are_zero(self):
+        self.assertEqual(cs.verdict_exit_code("CLEAN"), 0)
+        self.assertEqual(cs.verdict_exit_code("SUSPICIOUS"), 0)
+
+    def test_unrecognized_verdict_defaults_to_zero(self):
+        self.assertEqual(cs.verdict_exit_code("SOMETHING_NEW"), 0)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,14 @@
+/* Synthetic test fixture (safe content).
+   Used by tests/test_cli.py to exercise the CLI's --file path against
+   a genuine .css file. display:none / visibility:hidden / font-size:0
+   are normal, legitimate stylesheet rules -- not hiding techniques --
+   which is exactly why scan_css_hiding()'s M-1 mitigation exists. */
+
+.sr-only {
+    visibility: hidden;
+    font-size: 0;
+}
+
+.legacy-banner {
+    display: none;
+}

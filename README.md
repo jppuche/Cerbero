@@ -5,7 +5,7 @@
 <!-- GitHub About: Security screening framework for Claude Code. Evaluates MCP servers and Skills before installation. Detects prompt injection, supply chain attacks, rug pulls, and known CVEs. Local-first, pure Python stdlib, zero dependencies. -->
 <!-- Topics: claude-code, mcp-security, prompt-injection, supply-chain-security, agent-skills, security-screening, owasp-mcp-top-10, hooks -->
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.8%2B-yellow)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
@@ -253,6 +253,18 @@ Inspired by [Vigil](https://github.com/deadbits/vigil-llm):
 - 1 non-injection check fails → SUSPICIOUS (continue evaluation)
 - 2+ checks fail → REJECT or REQUIRES HUMAN REVIEW
 - Direct injection phrase → always REJECT (one match suffices)
+
+### Exit codes (`hooks/cerbero-scanner.py`)
+
+The CLI's exit code reflects the computed `summary.verdict`, so a caller can gate on return code instead of parsing the JSON report (added 1.2.0 — earlier versions exited `0` unconditionally after a completed scan, no matter the verdict):
+
+| Verdict | Exit code |
+|---------|-----------|
+| `REJECT` | `2` |
+| `REQUIRES_HUMAN_REVIEW`* | `1` |
+| `CLEAN` / `SUSPICIOUS` | `0` |
+
+\* `compute_verdict()` in the scanner itself only ever produces `CLEAN` / `SUSPICIOUS` / `REJECT` today — `REQUIRES_HUMAN_REVIEW` is the skill-level verdict from the table above, mapped here for forward compatibility. Errors before a scan runs (missing `--file` target, no arguments) keep their own pre-existing exit code `1` and print a JSON `error` field or usage text instead of a report.
 
 ### Optional external scanners
 
