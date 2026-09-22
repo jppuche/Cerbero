@@ -10,7 +10,7 @@ description: >-
 
 # Cerbero — Security Framework for Skills and MCP Servers
 
-Version: 1.1.0
+Version: 1.2.0
 
 ## Skill Structure
 

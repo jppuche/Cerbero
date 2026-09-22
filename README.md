@@ -7,7 +7,7 @@
 
 ![Version](https://img.shields.io/badge/version-1.2.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Python](https://img.shields.io/badge/python-3.8%2B-yellow)
+![Python](https://img.shields.io/badge/python-3.10%2B-yellow)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-purple)
@@ -279,7 +279,7 @@ Use Cerbero standalone if you only need security screening. Use Ignite if you wa
 
 ## Requirements
 
-- **Python 3.8+** (hooks use stdlib only — no pip install needed)
+- **Python 3.10+** (hooks use stdlib only — no pip install needed)
 - **Claude Code** (latest stable recommended)
 - **Node.js 18+** (for `npm audit` during MCP evaluation)
 
@@ -383,7 +383,7 @@ Unit tests cover all 13 detectors in `hooks/cerbero-scanner.py` (one positive + 
 python -m unittest discover -s tests -v
 ```
 
-CI runs the same command on `ubuntu-latest` against Python 3.11 and 3.12 (`.github/workflows/tests.yml`).
+CI runs the same command on `ubuntu-latest` against Python 3.10, 3.11 and 3.12 (`.github/workflows/tests.yml`).
 
 ## Contributing
 

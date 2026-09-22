@@ -14,7 +14,7 @@
 ## [1.1.0] - 2026-03-31
 
 ### Security
-- **Invisible Unicode remediation** (14 Sentinel findings):
+- **Invisible Unicode remediation** (14 invisible-Unicode findings):
   - validate-prompt.py: Variation Selector + Sneaky Bits detection and stripping
   - validate-tool-output.py: full normalize-then-detect pipeline (ZW, NFKC, confusables, tag chars, bidi, VS, sneaky bits), _extract_text() expanded to 10 keys
   - cerbero-scanner.py: 4 new scans (tag chars, bidi, VS + Glassworm decoder, sneaky bits), confusables normalization before injection scan
