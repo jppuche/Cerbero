@@ -3,12 +3,12 @@
 ## [1.2.0] - 2026-09-21
 
 ### Fixed
-- **Behavior change**: `main()` in `hooks/cerbero-scanner.py` now exits with a code that reflects the computed verdict, unconditionally exiting `0` no longer being the case. New mapping (`verdict_exit_code()`): `2` on `REJECT`, `1` on `REQUIRES_HUMAN_REVIEW` (not currently produced by `compute_verdict()` — mapped defensively for the skill-level verdict documented in README's "Multi-scanner logic"; see README "Exit codes" for the full table), `0` otherwise (`CLEAN`, `SUSPICIOUS`). Previously a REJECT verdict was only visible in the JSON `summary.verdict` field, not in the process exit code — a caller gating on exit code alone would have let a REJECTed target through undetected
-- `run_scan()` now forwards `target_name` into `scan_css_hiding(text, file_path)`, so the M-1 stylesheet-skip mitigation is reachable through the real pipeline and CLI (`--file`), not just when `scan_css_hiding()` is called directly. A genuine `.css`/`.html`/`.htm`/`.scss`/`.sass`/`.less`/`.svelte`/`.vue` file scanned via `--file` is no longer flagged for its own expected hide-via-CSS rules (zero-size, none-display, hidden-visibility). `--stdin` mode (`target_name="stdin"`, no extension) is unaffected
+- **Behavior change**: `main()` in `hooks/cerbero-scanner.py` now exits with a code that reflects the computed verdict (it previously always exited `0`). New mapping (`verdict_exit_code()`): `2` on `REJECT`, `1` on `REQUIRES_HUMAN_REVIEW` (not currently produced by `compute_verdict()` — mapped defensively for the skill-level verdict documented in README's "Multi-scanner logic"; see README "Exit codes" for the full table), `0` otherwise (`CLEAN`, `SUSPICIOUS`). Previously a REJECT verdict was only visible in the JSON `summary.verdict` field, not in the process exit code — a caller gating on exit code alone would have let a REJECTed target through undetected
+- `run_scan()` now forwards `target_name` into `scan_css_hiding(text, file_path)`, so the stylesheet-skip mitigation is reachable through the real pipeline and CLI (`--file`), not just when `scan_css_hiding()` is called directly. A genuine `.css`/`.html`/`.htm`/`.scss`/`.sass`/`.less`/`.svelte`/`.vue` file scanned via `--file` is no longer flagged for its own expected hide-via-CSS rules (zero-size, none-display, hidden-visibility). `--stdin` mode (`target_name="stdin"`, no extension) is unaffected
 
 ### Added
 - Unit test suite (`tests/`): one positive + one negative case for each of the 13 `scan_*` detectors in `hooks/cerbero-scanner.py`, plus CLI entry point tests (`--file`, `--stdin`, `--strip-only`, missing-file, no-args, exit codes), plus `tests/fixtures/stylesheet_sample.css` exercising the CSS-path fix end-to-end. Stdlib `unittest` only, 45 tests total
-- `.github/workflows/tests.yml`: runs the suite on `ubuntu-latest` against Python 3.11 and 3.12
+- `.github/workflows/tests.yml`: runs the suite on `ubuntu-latest` against Python 3.10, 3.11 and 3.12
 - README "Testing" and "Exit codes" sections
 
 ## [1.1.0] - 2026-03-31
