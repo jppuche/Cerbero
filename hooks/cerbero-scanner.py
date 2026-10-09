@@ -17,7 +17,7 @@ import os
 import unicodedata
 from datetime import datetime, timezone
 
-SCANNER_VERSION = "1.2.0"
+SCANNER_VERSION = "1.2.2"
 
 # --- Suppression annotation detection (H-SEC-003) ---
 # Suppression annotations in scanned content are treated as evasion attempts.
@@ -671,10 +671,14 @@ def main():
             text = f.read()
         target_name = args.file
     else:
-        text = sys.stdin.read()
+        # Read bytes: on Windows sys.stdin decodes with the locale code page (cp1252), which
+        # turns tag characters, variation selectors and homoglyphs into mojibake before the scan.
+        text = sys.stdin.buffer.read().decode("utf-8", errors="replace")
         target_name = "stdin"
 
     if args.strip_only:
+        # Raw scanned text goes to stdout; a cp1252 console cannot encode most of it.
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         print(strip_comments_and_strings(text))
         sys.exit(0)
 

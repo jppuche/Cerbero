@@ -5,7 +5,7 @@
 <!-- GitHub About: Security screening framework for Claude Code. Evaluates MCP servers and Skills before installation. Detects prompt injection, supply chain attacks, rug pulls, and known CVEs. Local-first, pure Python stdlib, zero dependencies. -->
 <!-- Topics: claude-code, mcp-security, prompt-injection, supply-chain-security, agent-skills, security-screening, owasp-mcp-top-10, hooks -->
 
-![Version](https://img.shields.io/badge/version-1.2.1-blue)
+![Version](https://img.shields.io/badge/version-1.2.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-yellow)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
@@ -204,11 +204,11 @@ cp hooks/*.py ~/.claude/hooks/
 ```
 
 > [!NOTE]
-> For global installation, update hook paths in your settings from `.claude/hooks/` to `~/.claude/hooks/`.
+> For global installation, point the hook commands in your settings at `~/.claude/hooks/` instead of `${CLAUDE_PROJECT_DIR}/.claude/hooks/`. The MCP audit log still goes to each project's `.claude/security/`; set `CERBERO_LOG_DIR` to collect every project's log in one directory (each entry records its project).
 
 ## Configuration
 
-Cerbero uses Claude Code's native hooks system. See `examples/settings.local.json` for a complete working configuration.
+Cerbero uses Claude Code's native hooks system. See `examples/settings.local.json` for a complete working configuration. Hook commands reference `${CLAUDE_PROJECT_DIR}` rather than a relative `.claude/hooks/` path, because Claude Code runs hooks from its current directory, which moves when Claude runs `cd`.
 
 The key sections:
 
@@ -377,7 +377,7 @@ Cerbero's detection maps to the [OWASP MCP Top 10](https://owasp.org/www-project
 
 ## Testing
 
-Unit tests cover all 13 detectors in `hooks/cerbero-scanner.py` (one positive + one negative case each) plus the CLI entry point and the `mcp-audit.py` log location. Stdlib only, no extra dependencies:
+Unit tests cover all 13 detectors in `hooks/cerbero-scanner.py` (one positive + one negative case each) plus the CLI entry point, the `mcp-audit.py` log location, `pre-tool-security.py` decisions, and UTF-8 stdin handling across the hooks. Stdlib only, no extra dependencies:
 
 ```bash
 python -m unittest discover -s tests -v

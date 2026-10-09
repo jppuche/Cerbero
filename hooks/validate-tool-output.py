@@ -1,13 +1,13 @@
-"""Cerbero hook: PostToolUse — scan external tool outputs for indirect prompt injection.
+"""Cerbero hook: PostToolUse - scan external tool outputs for indirect prompt injection.
 
 Closes Issue #2 from red team review (2026-03-10).
 Unicode remediation: C-SEC-001, C-SEC-002, W-SEC-009 (2026-03-31).
 
-Scans WebFetch and MCP tool outputs for format injection tags, conversation
+Scans WebFetch, WebSearch and MCP tool outputs for format injection tags, conversation
 splicing, base64-obfuscated payloads, and invisible Unicode attacks (tag
 characters, variation selectors, bidi overrides, sneaky bits).
 
-Warns via additionalContext — never blocks (tool already executed).
+Warns via additionalContext - never blocks (tool already executed).
 Fail-open: parse errors or empty content exit cleanly.
 """
 import sys
@@ -42,10 +42,10 @@ MAX_SCAN_BYTES = 200_000
 TAIL_SCAN_BYTES = 10_000
 
 # ---------------------------------------------------------------------------
-# Unicode normalization (synced from validate-prompt.py — C-SEC-001/002)
+# Unicode normalization (synced from validate-prompt.py - C-SEC-001/002)
 # ---------------------------------------------------------------------------
 
-# Zero-width / invisible characters — stripped before pattern matching
+# Zero-width / invisible characters - stripped before pattern matching
 ZERO_WIDTH_CHARS = re.compile(
     r"[\u200b\u200c\u200d\ufeff\u00ad\u2060\u180e"
     r"\uFE00-\uFE0F"               # Variation Selectors 1-16
@@ -75,21 +75,21 @@ CONFUSABLES = str.maketrans({
     "\u03A7": "X",
 })
 
-# Tag characters (U+E0000-U+E007F) — 100% ASR for smuggling (Rehberger 2024)
+# Tag characters (U+E0000-U+E007F) - 100% ASR for smuggling (Rehberger 2024)
 # Full block includes U+E0001 (LANGUAGE TAG) used in attacks (Cisco AI Defense).
 TAG_SMUGGLING_PATTERN = re.compile(r"[\U000E0000-\U000E007F]{3,}")
 
-# Bidi override characters — misleading text rendering
+# Bidi override characters - misleading text rendering
 BIDI_OVERRIDE_PATTERN = re.compile(
     r"[\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069]"
 )
 
-# Variation Selectors — Glassworm campaign (Mar 2026, 400+ repos)
+# Variation Selectors - Glassworm campaign (Mar 2026, 400+ repos)
 VARIATION_SELECTOR_PATTERN = re.compile(
     r"[\uFE00-\uFE0F\U000E0100-\U000E01EF]{2,}"
 )
 
-# Sneaky Bits — binary encoding via invisible math operators (Rehberger, Mar 2025)
+# Sneaky Bits - binary encoding via invisible math operators (Rehberger, Mar 2025)
 SNEAKY_BITS_PATTERN = re.compile(r"[\u2062\u2064]{3,}")
 
 
@@ -107,30 +107,54 @@ def _normalize_text(text):
     return nfkc.translate(CONFUSABLES)
 
 
+# Walk limits for _extract_text: enough for large WebSearch / MCP payloads, bounded so a
+# pathological response cannot exhaust memory. main() still samples anything over MAX_SCAN_BYTES.
+WALK_MAX_DEPTH = 12
+WALK_MAX_ITEMS = 500          # per list / dict
+WALK_MAX_CHARS = 2_000_000    # total characters collected
+# Joined between collected strings. Not pure whitespace, so two adjacent values cannot
+# fabricate a "\n\nHuman:" splice that neither value contains on its own.
+WALK_SEPARATOR = "\n---\n"
+
+
 def _extract_text(tool_name, tool_response):
-    """Extract scannable text from tool_response, recursing into nested structures."""
+    """Extract scannable text from tool_response: every string value, at any depth.
+
+    WebSearch results arrive as a list of records and MCP tools return arbitrary shapes, so
+    the walk visits all string values (not just the first known key). Strings are kept as
+    real text: the old fallback, json.dumps() without ensure_ascii=False, escaped newlines and
+    non-ASCII characters, which hid tag-block, confusable and "\\n\\nHuman:" patterns.
+    """
     if not tool_response:
         return ""
     if isinstance(tool_response, str):
         return tool_response
-    if isinstance(tool_response, list):
-        parts = [_extract_text(tool_name, item) for item in tool_response[:20]]
-        return " ".join(p for p in parts if p)
-    if isinstance(tool_response, dict):
-        # W-SEC-009: expanded key set for non-standard MCP response shapes
-        for key in ("content", "body", "text", "result",
-                    "data", "output", "message", "description",
-                    "value", "response"):
-            val = tool_response.get(key)
-            if isinstance(val, str) and val:
-                return val
-            if isinstance(val, (dict, list)):
-                return _extract_text(tool_name, val)
-        try:
-            return json.dumps(tool_response)
-        except (TypeError, ValueError):
-            return str(tool_response)
-    return str(tool_response)
+
+    parts = []
+    total = 0
+    stack = [(tool_response, 0)]
+    while stack and total < WALK_MAX_CHARS:
+        node, depth = stack.pop()
+        if isinstance(node, str):
+            if node:
+                parts.append(node)
+                total += len(node)
+        elif depth >= WALK_MAX_DEPTH:
+            continue
+        elif isinstance(node, dict):
+            items = list(node.values())[:WALK_MAX_ITEMS]
+            stack.extend((v, depth + 1) for v in reversed(items))
+        elif isinstance(node, (list, tuple)):
+            items = list(node)[:WALK_MAX_ITEMS]
+            stack.extend((v, depth + 1) for v in reversed(items))
+        # numbers, booleans and None carry no injectable text
+
+    if parts:
+        return WALK_SEPARATOR.join(parts)
+    try:
+        return json.dumps(tool_response, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(tool_response)
 
 
 def _check_format_tags(text):
@@ -184,28 +208,28 @@ def _check_unicode_attacks(raw_text):
     if TAG_SMUGGLING_PATTERN.search(raw_text):
         findings.append((
             "TAG_SMUGGLING",
-            "Unicode tag character sequence detected (U+E0000-E007F) — "
+            "Unicode tag character sequence detected (U+E0000-E007F) - "
             "confirmed attack vector for instruction smuggling"
         ))
 
     if VARIATION_SELECTOR_PATTERN.search(raw_text):
         findings.append((
             "VARIATION_SELECTOR",
-            "Variation Selector cluster detected — "
+            "Variation Selector cluster detected - "
             "possible Glassworm-style binary encoding"
         ))
 
     if SNEAKY_BITS_PATTERN.search(raw_text):
         findings.append((
             "SNEAKY_BITS",
-            "Invisible math operator sequence detected (U+2062/U+2064) — "
+            "Invisible math operator sequence detected (U+2062/U+2064) - "
             "possible binary encoding"
         ))
 
     if BIDI_OVERRIDE_PATTERN.search(raw_text):
         findings.append((
             "BIDI_OVERRIDE",
-            "Bidirectional override characters detected — "
+            "Bidirectional override characters detected - "
             "text may render differently than processed"
         ))
 
@@ -227,8 +251,13 @@ def _build_warning(tool_name, findings):
 
 def main():
     try:
-        data = json.load(sys.stdin)
+        # Hook input is UTF-8. Read bytes: on Windows sys.stdin decodes with the locale code
+        # page (cp1252, errors=surrogateescape), so tag characters, bidi overrides and
+        # confusables arrived as unrelated characters and their detectors never fired.
+        data = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace"))
     except (json.JSONDecodeError, ValueError):
+        sys.exit(0)
+    if not isinstance(data, dict):
         sys.exit(0)
 
     tool_name = data.get("tool_name", "")

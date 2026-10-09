@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.2] - 2026-10-09
+
+### Security
+- **UTF-8 hook stdin.** `cerbero-scanner.py --stdin`, `validate-tool-output.py`, `pre-tool-security.py`, `mcp-audit.py` and `untrusted-source-reminder.py` now read stdin as UTF-8 bytes. Through `sys.stdin` they decoded with the locale code page (cp1252 on most Windows setups), so tag characters and Cyrillic homoglyphs reached the detectors mangled: the scanner returned **CLEAN** on them via `--stdin`, the path `op-evaluate-mcp` uses for MCP tool definitions, and `validate-tool-output.py` missed them in tool output. Input containing a byte cp1252 leaves undefined (`Á` is `C3 81`) made the reminder hook print nothing and `mcp-audit.py` drop the audit entry, both silently with exit 0. **MCP evaluations run on Windows with an earlier version should be re-run.** `validate-prompt.py` is unchanged in this release
+- `cerbero-scanner.py --strip-only` writes its output as UTF-8
+
+### Changed
+- `pre-tool-security.py`: shell names are anchored, so `curl ... | sha256sum`, `| shasum` and `| shellcheck` no longer read as `| sh`, and `git rm -r` is allowed. It now also catches `sudo bash` / `/bin/sh` after a pipe, `bash <(curl ...)`, `rm -fr` / `rm -f -r`, `chmod -R 0777`, `irm | iex`, `Invoke-Expression`, `rmdir /s` and `del /f /s`. "Hidden process" now means `-WindowStyle Hidden` (`-NoNewWindow` hides nothing). Non-object input fails open
+- `validate-tool-output.py` scans every string value in the tool response at any depth, within limits on depth, item count and total characters. It used to stop at the first known key, which missed WebSearch result lists and MCP responses of other shapes. WebSearch is listed in the docstring
+- `mcp-audit.py`: `CERBERO_LOG_DIR` sends the log to one directory, for example to collect it across projects. Each entry carries a `project` field. I/O errors and non-object input fail open
+- Hook commands in `examples/settings.local.json` and `setup-guide.md` use `"${CLAUDE_PROJECT_DIR}/.claude/hooks/..."`. Claude Code runs hooks from its current directory, so the relative `.claude/hooks/...` path broke once Claude ran `cd` into a subfolder. **Upgrading**: update the hook commands in your settings too
+
+### Added
+- `tests/test_hooks_io.py`: UTF-8 stdin cases for the scanner, `validate-tool-output.py` and the reminder hook, run with `PYTHONIOENCODING=cp1252` so they reproduce the Windows failure on any OS, plus `pre-tool-security.py` allow / warn / deny cases. `tests/test_mcp_audit.py` adds the `CERBERO_LOG_DIR` and fail-open cases. 60 tests total
+
 ## [1.2.1] - 2026-10-09
 
 ### Fixed

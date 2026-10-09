@@ -103,7 +103,7 @@ Add each MCP server to `enabledMcpjsonServers` only after it passes Cerbero eval
 
 ## A.4 — Configure Security Hooks
 
-Add to `.claude/settings.local.json`:
+Add to `.claude/settings.local.json`. Hook commands use `${CLAUDE_PROJECT_DIR}` because Claude Code runs hooks from its current directory, which moves when Claude runs `cd`; a relative `.claude/hooks/...` path then points into the wrong folder.
 
 ```jsonc
 {
@@ -114,7 +114,7 @@ Add to `.claude/settings.local.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/validate-prompt.py"
+            "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/validate-prompt.py\""
           }
         ]
       }
@@ -125,7 +125,7 @@ Add to `.claude/settings.local.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/pre-tool-security.py"
+            "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-tool-security.py\""
           }
         ]
       },
@@ -134,7 +134,7 @@ Add to `.claude/settings.local.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/mcp-audit.py"
+            "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/mcp-audit.py\""
           }
         ]
       }
@@ -142,11 +142,11 @@ Add to `.claude/settings.local.json`:
     "PostToolUse": [
       {
         "matcher": "WebFetch",
-        "hooks": [{ "type": "command", "command": "python .claude/hooks/validate-tool-output.py" }]
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/validate-tool-output.py\"" }]
       },
       {
         "matcher": "mcp__*",
-        "hooks": [{ "type": "command", "command": "python .claude/hooks/validate-tool-output.py" }]
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/validate-tool-output.py\"" }]
       }
     ]
   }
