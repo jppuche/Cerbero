@@ -11,6 +11,26 @@ import os
 from datetime import datetime, timezone
 
 
+def _project_root(input_cwd):
+    """Project root for the audit log.
+
+    The input's "cwd" follows Claude's `cd`, so it is only a last resort.
+    Order: CLAUDE_PROJECT_DIR (also right for a global ~/.claude/hooks/
+    install), then the parent of the .claude/ dir that holds this script
+    (.claude/hooks/ or .claude/skills/cerbero/hooks/), then the input cwd.
+    """
+    env_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    if env_dir and os.path.isdir(env_dir):
+        return env_dir
+    d = os.path.dirname(os.path.abspath(__file__))
+    while os.path.normcase(os.path.basename(d)) != ".claude":
+        parent = os.path.dirname(d)
+        if parent == d:
+            return input_cwd or os.getcwd()
+        d = parent
+    return os.path.dirname(d)
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -18,9 +38,9 @@ def main():
         sys.exit(0)
     tool_name = data.get("tool_name", "unknown")
     tool_input = data.get("tool_input", {})
-    cwd = data.get("cwd", ".")
+    root = _project_root(data.get("cwd"))
 
-    log_dir = os.path.join(cwd, ".claude", "security")
+    log_dir = os.path.join(root, ".claude", "security")
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, "mcp-audit.log")
 

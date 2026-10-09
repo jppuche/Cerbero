@@ -5,7 +5,7 @@
 <!-- GitHub About: Security screening framework for Claude Code. Evaluates MCP servers and Skills before installation. Detects prompt injection, supply chain attacks, rug pulls, and known CVEs. Local-first, pure Python stdlib, zero dependencies. -->
 <!-- Topics: claude-code, mcp-security, prompt-injection, supply-chain-security, agent-skills, security-screening, owasp-mcp-top-10, hooks -->
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-yellow)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
@@ -377,7 +377,7 @@ Cerbero's detection maps to the [OWASP MCP Top 10](https://owasp.org/www-project
 
 ## Testing
 
-Unit tests cover all 13 detectors in `hooks/cerbero-scanner.py` (one positive + one negative case each) plus the CLI entry point. Stdlib only, no extra dependencies:
+Unit tests cover all 13 detectors in `hooks/cerbero-scanner.py` (one positive + one negative case each) plus the CLI entry point and the `mcp-audit.py` log location. Stdlib only, no extra dependencies:
 
 ```bash
 python -m unittest discover -s tests -v

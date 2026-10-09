@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1] - 2026-10-09
+
+### Fixed
+- `hooks/mcp-audit.py` wrote `.claude/security/mcp-audit.log` and `invocation-counter.txt` under the hook input's `cwd`, which follows Claude's `cd`. A session started in a subfolder, or one that changed directory, left orphan `.claude/security/` folders there and split the audit trail. The log directory is now anchored to the project root via `_project_root()`: `CLAUDE_PROJECT_DIR` first (also correct for a global `~/.claude/hooks/` install), then the parent of the `.claude/` directory that holds the script (`.claude/hooks/` or `.claude/skills/cerbero/hooks/`), then the input `cwd` as before (for example when run straight from a checkout of this repo)
+
+### Added
+- `tests/test_mcp_audit.py`: runs the hook as a subprocess from fake project, skill and global deployments with `cwd` in a subfolder, plus the no-`.claude` fallback. 49 tests total
+
 ## [1.2.0] - 2026-09-21
 
 ### Fixed
