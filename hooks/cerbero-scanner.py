@@ -17,7 +17,7 @@ import os
 import unicodedata
 from datetime import datetime, timezone
 
-SCANNER_VERSION = "1.2.2"
+SCANNER_VERSION = "1.3.0"
 
 # --- Suppression annotation detection (H-SEC-003) ---
 # Suppression annotations in scanned content are treated as evasion attempts.

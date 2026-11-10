@@ -5,7 +5,7 @@
 <!-- GitHub About: Security screening framework for Claude Code. Evaluates MCP servers and Skills before installation. Detects prompt injection, supply chain attacks, rug pulls, and known CVEs. Local-first, pure Python stdlib, zero dependencies. -->
 <!-- Topics: claude-code, mcp-security, prompt-injection, supply-chain-security, agent-skills, security-screening, owasp-mcp-top-10, hooks -->
 
-![Version](https://img.shields.io/badge/version-1.2.2-blue)
+![Version](https://img.shields.io/badge/version-1.3.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-yellow)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
@@ -85,7 +85,7 @@ echo '{"tool_input":{"command":"echo hello"}}' | python .claude/hooks/pre-tool-s
 
 - **Evaluates MCP servers before installation** — Source code review, dependency audit, reputation check, automated scanning, and semantic analysis. 8-step process with documented verdict
 - **Evaluates Skills before installation** — File type validation, community intelligence, content analysis with pre-context scanning. Catches prompt injection in Markdown files
-- **Detects rug pulls** — SHA-256 baseline comparison catches silent updates to MCP server tool descriptions. Classifies changes as BENIGN/SUSPICIOUS/MALICIOUS
+- **Detects changes to installed MCP servers** — SHA-256 baseline of the `claude mcp list` output catches added, removed or reconfigured servers and classifies changes as BENIGN/SUSPICIOUS/MALICIOUS. It does not yet see a tool description that changes behind an unchanged configuration (a redesign is planned), and it needs the `claude` CLI on PATH
 - **Blocks dangerous commands in real-time** — Hook intercepts `rm -rf`, fork bombs, remote code execution patterns, and PowerShell exploits before they run
 - **Detects prompt injection in your prompts** — Normalize-then-detect pipeline: NFKC normalization, homoglyph defeat, proximity matching, base64 recursive decode, zero-width stripping. Catches encoded and obfuscated attacks
 - **Scans external content for indirect injection** — Post-tool hook analyzes MCP and WebFetch outputs for format injection tags, conversation splicing, and base64-obfuscated payloads
@@ -96,7 +96,7 @@ echo '{"tool_input":{"command":"echo hello"}}' | python .claude/hooks/pre-tool-s
 Cerbero is a screening layer, not a security guarantee.
 
 - **Does not catch all attacks.** Pattern-based detection misses creative paraphrasing. Claude's built-in safety training is the primary defense against semantic attacks — Cerbero's regex layer is supplementary
-- **Does not prevent runtime exploits.** Cerbero screens before installation. For runtime isolation, use `claude --sandbox`
+- **Does not prevent runtime exploits.** Cerbero screens before installation. For runtime isolation, run Claude Code inside a container, a VM or `@anthropic-ai/sandbox-runtime` (there is no `claude --sandbox` flag, and the built-in `/sandbox` covers shell commands only)
 - **Does not replace code review.** Automated scanning catches known patterns. Novel attack vectors require human judgment
 - **Does not block dynamic evasion.** Shell command normalization (shlex) catches static evasion (quotes, backslashes) but not variable expansion, aliases, or IFS tricks
 - **Does not phone home.** All core detection is local. Web research queries during evaluation use your existing Claude Code tools (WebSearch/WebFetch) — Cerbero itself makes zero network calls
@@ -159,7 +159,7 @@ Cerbero:
   └─────────────────────────────────────────────────┘
 
   Action: You may install. Run /cerbero verify periodically
-  to detect changes to tool descriptions (rug pull detection).
+  to detect changes to the installed servers.
 ```
 
 </details>
@@ -338,7 +338,7 @@ Cerbero's detection maps to the [OWASP MCP Top 10](https://owasp.org/www-project
 | OWASP ID | Threat | Cerbero Coverage |
 |----------|--------|-----------------|
 | MCP01 | Token Mismanagement | Auth check in evaluate-mcp (Step 1.8) |
-| MCP02 | Privilege Escalation | Risk classification matrix, sandbox enforcement |
+| MCP02 | Privilege Escalation | Risk classification matrix, isolation enforcement |
 | MCP03 | Tool Poisoning | Tier 0-3 detection, semantic analysis, canary technique |
 | MCP04 | Supply Chain Attacks | Dependency audit, typosquat detection, provenance verification |
 | MCP05 | Command Injection | pre-tool-security hook, source code pattern matching |
@@ -359,7 +359,7 @@ Cerbero's detection maps to the [OWASP MCP Top 10](https://owasp.org/www-project
 
 ### What Cerbero doesn't do
 
-- Runtime monitoring (use `claude --sandbox` for OS-level enforcement)
+- Runtime monitoring (for OS-level enforcement isolate the whole Claude Code process: container, VM or `@anthropic-ai/sandbox-runtime`)
 - Network traffic analysis (out of scope for a screening tool)
 - Binary analysis of compiled MCP servers (text-based scanning only)
 - Guarantee safety (no tool can — security is a process, not a product)
@@ -373,11 +373,11 @@ Cerbero's detection maps to the [OWASP MCP Top 10](https://owasp.org/www-project
 - Multi-turn attacks that span across separate tool calls
 
 > [!IMPORTANT]
-> Cerbero reduces risk. It does not eliminate it. Use it alongside sandbox mode, careful permission policies, and your own judgment.
+> Cerbero reduces risk. It does not eliminate it. Use it alongside process isolation, careful permission policies, and your own judgment.
 
 ## Testing
 
-Unit tests cover all 13 detectors in `hooks/cerbero-scanner.py` (one positive + one negative case each) plus the CLI entry point, the `mcp-audit.py` log location, `pre-tool-security.py` decisions, and UTF-8 stdin handling across the hooks. Stdlib only, no extra dependencies:
+Unit tests cover all 13 detectors in `hooks/cerbero-scanner.py` (one positive + one negative case each) plus the CLI entry point, the `mcp-audit.py` log location, `pre-tool-security.py` decisions for Bash and PowerShell, `validate-prompt.py` block/warn tiers, JSON escape handling in the scanner, the example hook wiring, the consistency of the skill documents, and UTF-8 stdin handling across the hooks. Stdlib only, no extra dependencies:
 
 ```bash
 python -m unittest discover -s tests -v

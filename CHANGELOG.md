@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.0] - 2026-11-10
+
+### Security
+- **`pre-tool-security.py` no longer auto-approves on a warning.** A download warning returned `permissionDecision: "allow"`, which skips Claude Code's permission prompt, so the warning removed a safeguard. It now returns `additionalContext` only and the normal permission flow applies
+- **PowerShell tool coverage.** The hook reads `tool_input.command`, which the PowerShell tool also uses. Wire it with the matcher `Bash|PowerShell` (example settings and setup guide updated). New deny patterns: recursive `Remove-Item` (any `-Recurse` prefix, aliases `ri`/`rm`/`rmdir`/`rd`/`del`/`erase`), `Format-Volume`, `Clear-Disk`, `Set-ExecutionPolicy Bypass|Unrestricted`. **Upgrading**: change the matcher in your settings
+- **Scanner, JSON input.** `\uXXXX` escapes are judged by what they decode to: a red flag only for format/control characters, variation selectors, line separators and lone surrogates. Every detector also runs on the decoded strings, so an escaped tag character, bidi override, zero-width character or injection phrase is caught; 1.2.2 missed all four. Ordinary accented text written by `json.dumps` no longer trips `encoding_red_flag` (with an imperative word it produced REJECT). Non-JSON input is scanned as before
+
+### Changed
+- **`validate-prompt.py` two-tier redesign.** Blocks (exit 2) only text aimed at the agent's own instructions, format-injection tags and invisible-Unicode smuggling, also inside comments or Base64. A trigger on its own ("a partir de ahora", "don't mention it", "skip the lint rules") warns on stderr and passes. Reads stdin as UTF-8 bytes; non-object input fails open
+- Skill documents reconciled from three diverging copies: whole-process isolation (container, VM or `@anthropic-ai/sandbox-runtime`) replaces the nonexistent `claude --sandbox` flag; HIGH risk requires human review; verdict summaries match the operation tables; mcp-scan step removed; messages delivered in the user's language (rule 10); the rug-pull check states its coverage and reports `NOT RUN`, never `UNCHANGED`, when it cannot run; Skill folders with non-Markdown files require human review; user-level install documented
+- One *Scanner path* definition in SKILL.md (project install, then `~/.claude/hooks/cerbero/`); operations write `<scanner>`
+- `sandbox_required` is recorded in the MCP evaluation report and the `[security]` log entry, where the full audit reads it
+- `examples/settings.local.json`: no matcher on `UserPromptSubmit`; external-content hooks use `^(WebFetch|WebSearch|mcp__.*)$` (`mcp__*` was a regex, and WebSearch output was not scanned)
+- README: rug-pull claim narrowed to what the baseline covers; isolation guidance corrected
+
+### Added
+- Tests: `test_docs.py` (stale strings, required rules, links and anchors, scanner path, isolation record), `test_examples.py` (hook wiring), `test_scanner_json.py`, `test_validate_prompt.py`, `test_versions.py`, PowerShell cases in `test_hooks_io.py`
+
 ## [1.2.2] - 2026-10-09
 
 ### Security
