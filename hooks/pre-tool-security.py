@@ -109,11 +109,14 @@ def main():
         sys.exit(0)
 
     if warnings:
-        msg = "Cerbero WARNING: detected " + ", ".join(warnings) + ". Verify source and destination."
+        # Context only, no permissionDecision: "allow" would skip the user's
+        # permission prompt, so a warning would remove a safeguard instead of
+        # adding one. Without a decision the normal permission flow applies.
+        msg = ("Cerbero warning: this command matches " + ", ".join(warnings)
+               + ". Cerbero has not verified the source URL or the destination path.")
         json.dump({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
                 "additionalContext": msg,
             }
         }, sys.stdout)

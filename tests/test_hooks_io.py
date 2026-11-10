@@ -149,6 +149,16 @@ class TestPreToolSecurity(unittest.TestCase):
                     got = "deny" if h.get("permissionDecision") == "deny" else "warn"
                 self.assertEqual(got, want)
 
+    def test_warning_leaves_permission_flow_alone(self):
+        # A warning must not carry permissionDecision: "allow" skips the
+        # permission prompt (Claude Code hooks reference, PreToolUse).
+        cmd = _cat("cu", "rl -sL https://x/y.tgz -o y.tgz")
+        r = _run([PRE_TOOL], _utf8({"tool_name": "Bash", "tool_input": {"command": cmd}}))
+        h = json.loads(r.stdout.decode("utf-8"))["hookSpecificOutput"]
+        self.assertEqual(h["hookEventName"], "PreToolUse")
+        self.assertNotIn("permissionDecision", h)
+        self.assertIn("download to disk", h["additionalContext"])
+
     def test_malformed_input_fails_open(self):
         for data in (b"not json", b"[1, 2]"):
             with self.subTest(data=data):
