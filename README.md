@@ -46,7 +46,8 @@ MCP servers execute code with your permissions. Skills inject instructions into 
 
 ```bash
 git clone https://github.com/jppuche/Cerbero.git
-cp -r Cerbero/.claude/skills/cerbero/ your-project/.claude/skills/cerbero/
+mkdir -p your-project/.claude/skills your-project/.claude/hooks
+cp -r Cerbero/.claude/skills/cerbero your-project/.claude/skills/
 cp Cerbero/hooks/*.py your-project/.claude/hooks/
 ```
 
@@ -307,6 +308,13 @@ Yes. The skill (`/cerbero evaluate-mcp`, etc.) works independently. The hooks ad
 <summary>What happens if a hook crashes?</summary>
 
 All hooks fail open. A crash means the command/prompt is allowed through. This is by design - a false-positive that blocks your work is worse than a missed detection in a screening tool. The primary defense is always Claude's built-in safety training.
+
+</details>
+
+<details>
+<summary>Why does the scanner flag Cerbero's own documentation?</summary>
+
+Because those files quote the attack strings Cerbero looks for. The scanner judges content, not intent, so this README, parts of the skill, the hooks that hold the detection patterns and some test files return `REJECT` when scanned (the *Verify installation* example alone carries a direct injection phrase). That is the scanner working as designed: treat a `REJECT` on a security tool's own pattern lists as a prompt to read the finding, not as proof of an attack.
 
 </details>
 
