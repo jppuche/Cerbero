@@ -120,7 +120,7 @@ Project install - add to `.claude/settings.local.json`:
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-tool-security.py\"" }
         ]
@@ -156,7 +156,7 @@ User install - the same object in `~/.claude/settings.json`, with every command 
 { "type": "command", "command": "python \"C:/Users/<you>/.claude/hooks/cerbero/validate-tool-output.py\"" }
 ```
 
-Matcher notes (Claude Code hooks reference): a matcher made only of letters, digits, `_`, `-`, spaces, `,` and `|` is an exact-name list; anything else is an unanchored JavaScript regular expression. So `mcp__*` is a regex meaning "`mcp_` followed by any number of `_`", not a glob: it matches every MCP tool only because the test is unanchored, and it would also match any other tool whose name contains `mcp_`. Write `mcp__.*`, anchored as `^mcp__` or inside `^(...)$` as above. `UserPromptSubmit` has no matcher support, so no `matcher` key there (one would be ignored).
+Matcher notes (Claude Code hooks reference): a matcher made only of letters, digits, `_`, `-`, spaces, `,` and `|` is an exact-name list; anything else is an unanchored JavaScript regular expression. So `mcp__*` is a regex meaning "`mcp_` followed by any number of `_`", not a glob: it matches every MCP tool only because the test is unanchored, and it would also match any other tool whose name contains `mcp_`. Write `mcp__.*`, anchored as `^mcp__` or inside `^(...)$` as above. `UserPromptSubmit` has no matcher support, so no `matcher` key there (one would be ignored). `Bash|PowerShell` sends both shell tools to `pre-tool-security.py`: the PowerShell tool passes its command in the same `command` field.
 
 > **NOTE:** `validate-tool-output.py` (PostToolUse) scans external tool output - WebFetch, WebSearch and MCP - for format injection tags, conversation splicing, base64-obfuscated payloads and invisible Unicode. It walks every string value of the response, so a list of search results is scanned whole. It warns via additionalContext and never blocks (the tool already ran). `untrusted-source-reminder.py` (PreToolUse, same tools) adds a one-line "treat as untrusted data" reminder before the content arrives.
 

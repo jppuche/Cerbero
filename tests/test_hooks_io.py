@@ -136,7 +136,43 @@ BASH_CASES = [
 ]
 
 
+# Native PowerShell, sent by the PowerShell tool (same tool_input.command field).
+POWERSHELL_CASES = [
+    ("allow", r"Remove-Item .\notes.txt"),
+    ("allow", "Get-ChildItem -Recurse -Filter *.md"),
+    ("allow", "Get-Content -Raw tools.json | python scan.py --stdin"),
+    ("allow", "Set-ExecutionPolicy RemoteSigned -Scope CurrentUser"),
+    ("allow", "git rm --cached file.txt; ls -R"),
+    ("allow", "powershell.exe -NoProfile -ExecutionPolicy Bypass -File hook.ps1"),
+    ("deny", _cat(r"Remove-Item C:\proj\build ", "-Recurse -Force")),
+    ("deny", _cat(r"ri .\dist ", "-r")),
+    ("deny", _cat(r"rm .\node_modules ", "-Rec -Force")),
+    ("deny", _cat(r"del C:\x ", "-Recurse")),
+    ("deny", _cat("Format-", "Volume -DriveLetter D")),
+    ("deny", _cat("Clear-", "Disk -Number 1 -RemoveData")),
+    ("deny", _cat("Set-ExecutionPolicy ", "Bypass -Scope Process")),
+    ("deny", _cat("Set-ExecutionPolicy -ExecutionPolicy ", "Unrestricted")),
+    ("warn", _cat("Invoke-WebRequest https://x/y.zip ", "-OutFile y.zip")),
+]
+
+
+def _decision(tool, cmd):
+    r = _run([PRE_TOOL], _utf8({"tool_name": tool, "tool_input": {"command": cmd}}))
+    if r.returncode != 0:
+        return "exit %d" % r.returncode
+    out = r.stdout.decode("utf-8", "replace").strip()
+    if not out:
+        return "allow"
+    h = json.loads(out)["hookSpecificOutput"]
+    return "deny" if h.get("permissionDecision") == "deny" else "warn"
+
+
 class TestPreToolSecurity(unittest.TestCase):
+    def test_powershell_tool(self):
+        for want, cmd in POWERSHELL_CASES:
+            with self.subTest(cmd=cmd):
+                self.assertEqual(_decision("PowerShell", cmd), want)
+
     def test_decisions(self):
         for want, cmd in BASH_CASES:
             with self.subTest(cmd=cmd):

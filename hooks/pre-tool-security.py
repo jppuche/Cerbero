@@ -3,10 +3,15 @@
 Normalization: shlex.split() resolves quotes and backslash escapes before matching.
 Multi-match: scans all patterns, returns highest severity (deny > warn).
 Scope: catches accidental dangerous commands and basic static evasion. Dynamic
-evasion (variable expansion, aliases, IFS tricks) is out of scope - use Claude
-Code's sandbox mode for OS-level enforcement.
+evasion (variable expansion, aliases, IFS tricks) is out of scope - for OS-level
+enforcement isolate the whole Claude Code process (container, VM or
+@anthropic-ai/sandbox-runtime).
 
-Fail-open: parse errors → allow (consistent with all Ignite hooks).
+Tools: Bash and PowerShell. Both send the command string in tool_input.command
+(Claude Code hooks reference, PowerShell tool), so wire the hook with the
+matcher "Bash|PowerShell".
+
+Fail-open: parse errors → allow (consistent with all Cerbero hooks).
 """
 import sys
 import json
@@ -46,6 +51,14 @@ DANGEROUS_PATTERNS = [
     (r"\bformat(\.com)?\s+[A-Z]:(\s|$)", "Windows disk format"),
     (r"\bnet\s+user\s+\S", "Windows user account modification"),
     (r"\breg\s+delete\b", "Windows registry deletion"),
+    # Native PowerShell. Parameter names may be abbreviated to any unique prefix
+    # (-r, -rec, -Recurse), and Remove-Item has the aliases ri, rm, rmdir, rd,
+    # del and erase. "git rm" is left out, as above.
+    (r"(?<!\bgit\s)\b(remove-item|ri|rm|rmdir|rd|del|erase)\b.*\s-r(e(c(u(r(s(e)?)?)?)?)?)?\b",
+     "PowerShell recursive delete (Remove-Item -Recurse)"),
+    (r"\b(format-volume|clear-disk)\b", "PowerShell disk format / wipe"),
+    (r"\bset-executionpolicy\b.*\b(bypass|unrestricted)\b",
+     "PowerShell execution policy disabled"),
 ]
 
 WARNING_PATTERNS = [
