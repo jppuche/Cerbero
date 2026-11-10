@@ -431,11 +431,11 @@ def scan_css_hiding(text, file_path=""):
     return findings
 
 
-def scan_encoding_red_flags(text):
+def scan_encoding_red_flags(text, patterns=None):
     """Tier 1: Detect suspicious encoding patterns."""
     findings = []
     for i, line in enumerate(text.splitlines(), 1):
-        for pattern, enc_type in ENCODING_PATTERNS:
+        for pattern, enc_type in (ENCODING_PATTERNS if patterns is None else patterns):
             for match in re.finditer(pattern, line):
                 findings.append({
                     "check": "encoding_red_flag",
@@ -444,6 +444,92 @@ def scan_encoding_red_flags(text):
                     "line": i,
                     "context": line.strip()[:50],
                 })
+    return findings
+
+
+# --- JSON input (MCP tool definitions) ---
+# In JSON, "ã" is how a serializer writes "ã" (Python's json.dumps does
+# it for every non-ASCII character by default), so a raw-text match on \uXXXX
+# flags ordinary accented text. For JSON input the scanner instead decodes the
+# escapes: an escape is a red flag only when it decodes to a character nobody
+# sees (format, control, variation selector, line separator, lone surrogate),
+# and every detector also runs on the decoded strings, so an escaped tag
+# character or an escaped injection phrase is caught as what it is.
+
+_JSON_U_ESCAPE = re.compile(r"(\\+)u([0-9a-fA-F]{4})")
+_UNICODE_ESCAPE_TYPE = "unicode_escape"
+_ORDINARY_CONTROLS = {0x09, 0x0A, 0x0D}
+
+
+def _json_strings(text):
+    """All string keys and values of a JSON document, or None if not JSON."""
+    try:
+        doc = json.loads(text)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(doc, (dict, list)):
+        return None
+    out, stack = [], [doc]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            out.append(node)
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                out.append(k)
+                stack.append(v)
+        elif isinstance(node, list):
+            stack.extend(node)
+    return out
+
+
+def _invisible_reason(cp):
+    """Why a decoded code point is a red flag, or None for a visible one."""
+    if 0xD800 <= cp <= 0xDFFF:
+        return "lone surrogate"
+    if 0xFE00 <= cp <= 0xFE0F or 0xE0100 <= cp <= 0xE01EF:
+        return "variation selector"
+    cat = unicodedata.category(chr(cp))
+    if cat == "Cc" and cp not in _ORDINARY_CONTROLS:
+        return "control character"
+    if cat == "Cf":
+        return "format character (invisible: zero-width, bidi, tag, ...)"
+    if cat in ("Zl", "Zp"):
+        return "line/paragraph separator"
+    return None
+
+
+def scan_json_unicode_escapes(text):
+    """Flag JSON \\uXXXX escapes that decode to an invisible code point.
+
+    An escape preceded by an odd number of backslashes is a JSON escape; an
+    even number means an escaped backslash followed by literal text, which the
+    decoded-strings pass checks instead. Surrogate pairs are combined.
+    """
+    findings = []
+    for i, line in enumerate(text.splitlines(), 1):
+        escapes = [(m.start(), m.end(), int(m.group(2), 16), m.group())
+                   for m in _JSON_U_ESCAPE.finditer(line)
+                   if len(m.group(1)) % 2 == 1]
+        j = 0
+        while j < len(escapes):
+            start, end, cp, raw = escapes[j]
+            if (0xD800 <= cp <= 0xDBFF and j + 1 < len(escapes)
+                    and escapes[j + 1][0] == end and 0xDC00 <= escapes[j + 1][2] <= 0xDFFF):
+                low = escapes[j + 1][2]
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00)
+                raw = raw + escapes[j + 1][3]
+                j += 1
+            reason = _invisible_reason(cp)
+            if reason:
+                findings.append({
+                    "check": "encoding_red_flag",
+                    "severity": "MEDIUM",
+                    "detail": f"{_UNICODE_ESCAPE_TYPE}: {raw[-6 if cp < 0x10000 else -12:]} -> U+{cp:04X} ({reason})",
+                    "line": i,
+                    "context": line.strip()[:50],
+                })
+            j += 1
     return findings
 
 
@@ -613,9 +699,38 @@ def run_scan(text, target_name):
     # M-1: forward target_name so a real stylesheet (.css/.html/...) is
     # skipped instead of flagged for its own expected hiding-via-CSS rules.
     all_findings.extend(scan_css_hiding(text, target_name))
-    all_findings.extend(scan_encoding_red_flags(text))
+    json_strings = _json_strings(text)
+    if json_strings is None:
+        all_findings.extend(scan_encoding_red_flags(text))
+    else:
+        # JSON: \uXXXX is serializer syntax; judge each escape by what it decodes to.
+        all_findings.extend(scan_encoding_red_flags(
+            text, [p for p in ENCODING_PATTERNS if p[1] != _UNICODE_ESCAPE_TYPE]))
+        all_findings.extend(scan_json_unicode_escapes(text))
     all_findings.extend(scan_tool_schema_red_flags(text))
     all_findings.extend(scan_data_acquisition(text))
+
+    if json_strings is not None and _JSON_U_ESCAPE.search(text):
+        # Run the detectors on the decoded strings too, so content hidden
+        # behind escapes is judged as what it decodes to. A check already
+        # reported on the raw text is not repeated.
+        decoded = "\n".join(json_strings)
+        seen = {f["check"] for f in all_findings}
+        decoded_findings = []
+        for scan in (scan_suppression_annotations, scan_injection_phrases,
+                     scan_base64_payloads, scan_zero_width_chars, scan_tag_characters,
+                     scan_bidi_overrides, scan_variation_selectors, scan_sneaky_bits,
+                     scan_html_comments, scan_encoding_red_flags,
+                     scan_tool_schema_red_flags, scan_data_acquisition):
+            decoded_findings.extend(scan(decoded))
+        normalized_decoded = _normalize_for_injection_scan(decoded)
+        if normalized_decoded != decoded:
+            decoded_findings.extend(scan_injection_phrases(normalized_decoded))
+        for finding in decoded_findings:
+            if finding["check"] not in seen:
+                finding["detail"] += " (in JSON-decoded strings)"
+                all_findings.append(finding)
+                seen.add(finding["check"])
 
     # C-SEC-005: Also scan NORMALIZED text for obfuscated injection phrases
     normalized = _normalize_for_injection_scan(text)
