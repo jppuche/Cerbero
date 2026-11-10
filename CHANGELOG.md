@@ -9,7 +9,7 @@
 
 ### Changed
 - **`validate-prompt.py` two-tier redesign.** Blocks (exit 2) only text aimed at the agent's own instructions, format-injection tags and invisible-Unicode smuggling, also inside comments or Base64. A trigger on its own ("a partir de ahora", "don't mention it", "skip the lint rules") warns on stderr and passes. Reads stdin as UTF-8 bytes; non-object input fails open
-- Skill documents reconciled from three diverging copies: whole-process isolation (container, VM or `@anthropic-ai/sandbox-runtime`) replaces the nonexistent `claude --sandbox` flag; HIGH risk requires human review; verdict summaries match the operation tables; mcp-scan step removed; messages delivered in the user's language (rule 10); the rug-pull check states its coverage and reports `NOT RUN`, never `UNCHANGED`, when it cannot run; Skill folders with non-Markdown files require human review; user-level install documented
+- Skill documents corrected: whole-process isolation (container, VM or `@anthropic-ai/sandbox-runtime`) replaces the nonexistent `claude --sandbox` flag; HIGH risk requires human review; verdict summaries match the operation tables; mcp-scan step removed; messages delivered in the user's language (rule 10); the rug-pull check states its coverage and reports `NOT RUN`, never `UNCHANGED`, when it cannot run; Skill folders with non-Markdown files require human review; user-level install documented
 - One *Scanner path* definition in SKILL.md (project install, then `~/.claude/hooks/cerbero/`); operations write `<scanner>`
 - `sandbox_required` is recorded in the MCP evaluation report and the `[security]` log entry, where the full audit reads it
 - `examples/settings.local.json`: no matcher on `UserPromptSubmit`; external-content hooks use `^(WebFetch|WebSearch|mcp__.*)$` (`mcp__*` was a regex, and WebSearch output was not scanned)
@@ -44,7 +44,7 @@
 ## [1.2.0] - 2026-09-21
 
 ### Fixed
-- **Behavior change**: `main()` in `hooks/cerbero-scanner.py` now exits with a code that reflects the computed verdict (it previously always exited `0`). New mapping (`verdict_exit_code()`): `2` on `REJECT`, `1` on `REQUIRES_HUMAN_REVIEW` (not currently produced by `compute_verdict()` — mapped defensively for the skill-level verdict documented in README's "Multi-scanner logic"; see README "Exit codes" for the full table), `0` otherwise (`CLEAN`, `SUSPICIOUS`). Previously a REJECT verdict was only visible in the JSON `summary.verdict` field, not in the process exit code — a caller gating on exit code alone would have let a REJECTed target through undetected
+- **Behavior change**: `main()` in `hooks/cerbero-scanner.py` now exits with a code that reflects the computed verdict (it previously always exited `0`). New mapping (`verdict_exit_code()`): `2` on `REJECT`, `1` on `REQUIRES_HUMAN_REVIEW` (not currently produced by `compute_verdict()` - mapped defensively for the skill-level verdict documented in README's "Multi-scanner logic"; see README "Exit codes" for the full table), `0` otherwise (`CLEAN`, `SUSPICIOUS`). Previously a REJECT verdict was only visible in the JSON `summary.verdict` field, not in the process exit code - a caller gating on exit code alone would have let a REJECTed target through undetected
 - `run_scan()` now forwards `target_name` into `scan_css_hiding(text, file_path)`, so the stylesheet-skip mitigation is reachable through the real pipeline and CLI (`--file`), not just when `scan_css_hiding()` is called directly. A genuine `.css`/`.html`/`.htm`/`.scss`/`.sass`/`.less`/`.svelte`/`.vue` file scanned via `--file` is no longer flagged for its own expected hide-via-CSS rules (zero-size, none-display, hidden-visibility). `--stdin` mode (`target_name="stdin"`, no extension) is unaffected
 
 ### Added
@@ -79,4 +79,4 @@
 - Setup guide with verification checklist
 
 ### Origin
-Extracted from [Ignite](https://github.com/jppuche/Ignite) v2.3.1 security framework. All hooks are pure Python stdlib — zero external dependencies.
+Extracted from [Ignite](https://github.com/jppuche/Ignite) v2.3.1 security framework. All hooks are pure Python stdlib - zero external dependencies.

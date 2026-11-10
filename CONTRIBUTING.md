@@ -14,7 +14,7 @@ Open an issue with:
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/your-feature`)
 3. Make your changes
-4. Ensure all hooks still run standalone (stdlib only — no external dependencies)
+4. Ensure all hooks still run standalone (stdlib only - no external dependencies)
 5. Test hooks with the smoke tests in the README
 6. Commit using conventional commits (`type(scope): description`)
 7. Open a pull request

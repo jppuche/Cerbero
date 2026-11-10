@@ -2,7 +2,7 @@
 
 **Security screening for Claude Code.** Evaluate before you install.
 
-<!-- GitHub About: Security screening framework for Claude Code. Evaluates MCP servers and Skills before installation. Detects prompt injection, supply chain attacks, rug pulls, and known CVEs. Local-first, pure Python stdlib, zero dependencies. -->
+<!-- GitHub About: Security screening framework for Claude Code. Evaluates MCP servers and Skills before installation. Detects prompt injection, supply chain risks, changes to installed servers, and known CVEs. Local-first, pure Python stdlib, zero dependencies. -->
 <!-- Topics: claude-code, mcp-security, prompt-injection, supply-chain-security, agent-skills, security-screening, owasp-mcp-top-10, hooks -->
 
 ![Version](https://img.shields.io/badge/version-1.3.0-blue)
@@ -14,7 +14,7 @@
 
 You run `claude mcp add`, it works, you move on. But that server now has access to your files, your shell, and your conversation context. Did you check what it does with that access?
 
-MCP servers execute code with your permissions. Skills inject instructions into your AI's context. The ecosystem is growing faster than anyone can audit, and a single malicious tool description can hijack your entire session. Cerbero screens MCP servers and Skills before you install them — so you can make informed decisions instead of trusting blindly.
+MCP servers execute code with your permissions. Skills inject instructions into your AI's context. The ecosystem is growing faster than anyone can audit, and a single malicious tool description can hijack your entire session. Cerbero screens MCP servers and Skills before you install them - so you can make informed decisions instead of trusting blindly.
 
 ## Table of Contents
 
@@ -83,23 +83,23 @@ echo '{"tool_input":{"command":"echo hello"}}' | python .claude/hooks/pre-tool-s
 
 ## What Cerbero Does
 
-- **Evaluates MCP servers before installation** — Source code review, dependency audit, reputation check, automated scanning, and semantic analysis. 8-step process with documented verdict
-- **Evaluates Skills before installation** — File type validation, community intelligence, content analysis with pre-context scanning. Catches prompt injection in Markdown files
-- **Detects changes to installed MCP servers** — SHA-256 baseline of the `claude mcp list` output catches added, removed or reconfigured servers and classifies changes as BENIGN/SUSPICIOUS/MALICIOUS. It does not yet see a tool description that changes behind an unchanged configuration (a redesign is planned), and it needs the `claude` CLI on PATH
-- **Blocks dangerous commands in real-time** — Hook intercepts `rm -rf`, fork bombs, remote code execution patterns, and PowerShell exploits before they run
-- **Detects prompt injection in your prompts** — Normalize-then-detect pipeline: NFKC normalization, homoglyph defeat, proximity matching, base64 recursive decode, zero-width stripping. Catches encoded and obfuscated attacks
-- **Scans external content for indirect injection** — Post-tool hook analyzes MCP and WebFetch outputs for format injection tags, conversation splicing, and base64-obfuscated payloads
-- **Maintains an audit trail** — Every MCP tool invocation is logged with timestamp, tool name, and session ID. Reminds you to verify every 50 calls
+- **Evaluates MCP servers before installation** - Source code review, dependency audit, reputation check, automated scanning, and semantic analysis. 8-step process with documented verdict
+- **Evaluates Skills before installation** - File type validation, community intelligence, content analysis with pre-context scanning. Catches prompt injection in Markdown files
+- **Detects changes to installed MCP servers** - SHA-256 baseline of the `claude mcp list` output catches added, removed or reconfigured servers and classifies changes as BENIGN/SUSPICIOUS/MALICIOUS. It does not yet see a tool description that changes behind an unchanged configuration (a redesign is planned), and it needs the `claude` CLI on PATH
+- **Blocks dangerous commands in real-time** - Hook intercepts `rm -rf`, fork bombs, remote code execution patterns, and PowerShell exploits before they run
+- **Detects prompt injection in your prompts** - Normalize-then-detect pipeline: NFKC normalization, homoglyph defeat, proximity matching, base64 recursive decode, zero-width stripping. Catches encoded and obfuscated attacks
+- **Scans external content for indirect injection** - Post-tool hook analyzes MCP and WebFetch outputs for format injection tags, conversation splicing, and base64-obfuscated payloads
+- **Maintains an audit trail** - Every MCP tool invocation is logged with timestamp, tool name, and session ID. Reminds you to verify every 50 calls
 
 ## What Cerbero Does NOT Do
 
 Cerbero is a screening layer, not a security guarantee.
 
-- **Does not catch all attacks.** Pattern-based detection misses creative paraphrasing. Claude's built-in safety training is the primary defense against semantic attacks — Cerbero's regex layer is supplementary
+- **Does not catch all attacks.** Pattern-based detection misses creative paraphrasing. Claude's built-in safety training is the primary defense against semantic attacks - Cerbero's regex layer is supplementary
 - **Does not prevent runtime exploits.** Cerbero screens before installation. For runtime isolation, run Claude Code inside a container, a VM or `@anthropic-ai/sandbox-runtime` (there is no `claude --sandbox` flag, and the built-in `/sandbox` covers shell commands only)
 - **Does not replace code review.** Automated scanning catches known patterns. Novel attack vectors require human judgment
 - **Does not block dynamic evasion.** Shell command normalization (shlex) catches static evasion (quotes, backslashes) but not variable expansion, aliases, or IFS tricks
-- **Does not phone home.** All core detection is local. Web research queries during evaluation use your existing Claude Code tools (WebSearch/WebFetch) — Cerbero itself makes zero network calls
+- **Does not phone home.** All core detection is local. Web research queries during evaluation use your existing Claude Code tools (WebSearch/WebFetch) - Cerbero itself makes zero network calls
 - **Does not auto-reject on a single flag.** One suspicious finding triggers REQUIRES HUMAN REVIEW, not automatic rejection. You always make the final call
 
 ## How It Works
@@ -124,8 +124,8 @@ Cerbero:
   2. Checks reputation: age, downloads, stars, publisher trust
   3. Searches for known vulnerabilities (CVEs, community reports)
   4. Audits dependencies (npm audit + signature verification)
-  5. Runs pre-context scanner (Tier 0 — before Claude reads tool definitions)
-  6. Performs semantic analysis (Tier 3 — Claude analyzes pre-processed content)
+  5. Runs pre-context scanner (Tier 0 - before Claude reads tool definitions)
+  6. Performs semantic analysis (Tier 3 - Claude analyzes pre-processed content)
   7. Classifies risk: MEDIUM / HIGH / CRITICAL
   8. Produces verdict: APPROVED / REQUIRES HUMAN REVIEW / REJECTED
 
@@ -137,7 +137,7 @@ Cerbero:
 
 ```
 ══════════════════════════════════════════════════════
-  CERBERO EVALUATION REPORT — @anthropic/mcp-docs
+  CERBERO EVALUATION REPORT - @anthropic/mcp-docs
 ══════════════════════════════════════════════════════
 
   Publisher:    anthropic (TRUSTED)
@@ -256,7 +256,7 @@ Inspired by [Vigil](https://github.com/deadbits/vigil-llm):
 
 ### Exit codes (`hooks/cerbero-scanner.py`)
 
-The CLI's exit code reflects the computed `summary.verdict`, so a caller can gate on return code instead of parsing the JSON report (added 1.2.0 — earlier versions exited `0` unconditionally after a completed scan, no matter the verdict):
+The CLI's exit code reflects the computed `summary.verdict`, so a caller can gate on return code instead of parsing the JSON report (added 1.2.0 - earlier versions exited `0` unconditionally after a completed scan, no matter the verdict):
 
 | Verdict | Exit code |
 |---------|-----------|
@@ -264,7 +264,7 @@ The CLI's exit code reflects the computed `summary.verdict`, so a caller can gat
 | `REQUIRES_HUMAN_REVIEW`* | `1` |
 | `CLEAN` / `SUSPICIOUS` | `0` |
 
-\* `compute_verdict()` in the scanner itself only ever produces `CLEAN` / `SUSPICIOUS` / `REJECT` today — `REQUIRES_HUMAN_REVIEW` is the skill-level verdict from the table above, mapped here for forward compatibility. Errors before a scan runs (missing `--file` target, no arguments) keep their own pre-existing exit code `1` and print a JSON `error` field or usage text instead of a report.
+\* `compute_verdict()` in the scanner itself only ever produces `CLEAN` / `SUSPICIOUS` / `REJECT` today - `REQUIRES_HUMAN_REVIEW` is the skill-level verdict from the table above, mapped here for forward compatibility. Errors before a scan runs (missing `--file` target, no arguments) keep their own pre-existing exit code `1` and print a JSON `error` field or usage text instead of a report.
 
 ### Optional external scanners
 
@@ -279,41 +279,41 @@ Use Cerbero standalone if you only need security screening. Use Ignite if you wa
 
 ## Requirements
 
-- **Python 3.10+** (hooks use stdlib only — no pip install needed)
+- **Python 3.10+** (hooks use stdlib only - no pip install needed)
 - **Claude Code** (latest stable recommended)
 - **Node.js 18+** (for `npm audit` during MCP evaluation)
 
 Optional:
-- **uv** — for installing cisco-ai-mcp-scanner
-- **Python 3.11-3.13** — required by cisco-ai-mcp-scanner (if used)
+- **uv** - for installing cisco-ai-mcp-scanner
+- **Python 3.11-3.13** - required by cisco-ai-mcp-scanner (if used)
 
 ## FAQ
 
 <details>
 <summary>Does Cerbero send my data anywhere?</summary>
 
-No. All core detection runs locally using Python stdlib. During evaluation, Cerbero uses Claude Code's WebSearch/WebFetch tools to check for known vulnerabilities — these use whatever web access Claude Code already has. The hooks themselves make zero network calls.
+No. All core detection runs locally using Python stdlib. During evaluation, Cerbero uses Claude Code's WebSearch/WebFetch tools to check for known vulnerabilities - these use whatever web access Claude Code already has. The hooks themselves make zero network calls.
 
 </details>
 
 <details>
 <summary>Can I use Cerbero without the hooks?</summary>
 
-Yes. The skill (`/cerbero evaluate-mcp`, etc.) works independently. The hooks add real-time protection between evaluations — prompt injection defense, dangerous command blocking, audit trail, and indirect injection scanning. Both layers are valuable but neither depends on the other.
+Yes. The skill (`/cerbero evaluate-mcp`, etc.) works independently. The hooks add real-time protection between evaluations - prompt injection defense, dangerous command blocking, audit trail, and indirect injection scanning. Both layers are valuable but neither depends on the other.
 
 </details>
 
 <details>
 <summary>What happens if a hook crashes?</summary>
 
-All hooks fail open. A crash means the command/prompt is allowed through. This is by design — a false-positive that blocks your work is worse than a missed detection in a screening tool. The primary defense is always Claude's built-in safety training.
+All hooks fail open. A crash means the command/prompt is allowed through. This is by design - a false-positive that blocks your work is worse than a missed detection in a screening tool. The primary defense is always Claude's built-in safety training.
 
 </details>
 
 <details>
 <summary>How is this different from mcp-scan?</summary>
 
-mcp-scan (originally Invariant Labs, now Snyk) was deprecated in early 2026. v0.3.0 is unmaintained; v0.4+ requires a Snyk account and mandatory cloud data transmission. Cerbero runs entirely locally, covers both MCP servers and Skills, includes 6 automation hooks, and provides rug pull detection. For YARA-based malware signatures, Cerbero recommends cisco-ai-mcp-scanner as a complement.
+Cerbero does not use or depend on mcp-scan; check that tool's own documentation for its current terms. Cerbero runs entirely locally, covers both MCP servers and Skills, includes 5 automation hooks plus a standalone pre-context scanner, and keeps a baseline of installed servers (its limits are listed under *What Cerbero Does*). For YARA-based malware signatures, Cerbero recommends cisco-ai-mcp-scanner as a complement.
 
 </details>
 
@@ -353,7 +353,7 @@ Cerbero's detection maps to the [OWASP MCP Top 10](https://owasp.org/www-project
 - **Security through transparency.** Every detection pattern is documented. Every hook is auditable. No black boxes
 - **Local-first.** No external APIs required for core detection. Your code stays on your machine
 - **Defense in depth.** Cerbero is one layer, not the only layer. It complements Claude's built-in safety, OS-level sandboxing, and human judgment
-- **Informed decisions.** Cerbero always presents findings to the human before acting. It never auto-installs, never silently skips, never hides a finding
+- **Informed decisions.** Cerbero always presents findings to the human before acting. It shows the evaluation report before any install, installs on its own only when the verdict is APPROVED (trusted publisher, MEDIUM risk or lower), never silently skips a step and never hides a finding
 
 ## Limitations
 
@@ -362,7 +362,7 @@ Cerbero's detection maps to the [OWASP MCP Top 10](https://owasp.org/www-project
 - Runtime monitoring (for OS-level enforcement isolate the whole Claude Code process: container, VM or `@anthropic-ai/sandbox-runtime`)
 - Network traffic analysis (out of scope for a screening tool)
 - Binary analysis of compiled MCP servers (text-based scanning only)
-- Guarantee safety (no tool can — security is a process, not a product)
+- Guarantee safety (no tool can - security is a process, not a product)
 
 ### Known detection gaps
 
@@ -392,17 +392,17 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## Acknowledgments
 
 ### Methodologies and Standards
-- [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/) — Threat classification framework
-- [TOFU (Trust on First Use)](https://en.wikipedia.org/wiki/Trust_on_first_use) — Baseline comparison model
+- [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/) - Threat classification framework
+- [TOFU (Trust on First Use)](https://en.wikipedia.org/wiki/Trust_on_first_use) - Baseline comparison model
 
 ### Research and Tools
-- [Invariant Labs](https://invariantlabs.ai/) — Compound risk research on MCP server interactions
-- [Cisco AI Defense](https://www.cisco.com/site/us/en/products/security/ai-defense/) — YARA patterns and MCP scanner inspiration
-- [Trail of Bits](https://www.trailofbits.com/) — TOFU concepts and mcp-context-protector
-- [Vigil](https://github.com/deadbits/vigil-llm) — Multi-scanner trigger logic inspiration
+- [Invariant Labs](https://invariantlabs.ai/) - Compound risk research on MCP server interactions
+- [Cisco AI Defense](https://www.cisco.com/site/us/en/products/security/ai-defense/) - YARA patterns and MCP scanner inspiration
+- [Trail of Bits](https://www.trailofbits.com/) - TOFU concepts and mcp-context-protector
+- [Vigil](https://github.com/deadbits/vigil-llm) - Multi-scanner trigger logic inspiration
 
 ### Platform
-- [Anthropic](https://www.anthropic.com/) — Claude Code hooks API that makes automation possible
+- [Anthropic](https://www.anthropic.com/) - Claude Code hooks API that makes automation possible
 
 ## License
 
@@ -410,4 +410,4 @@ MIT. See [LICENSE](LICENSE).
 
 ---
 
-Made by [Juan Puche](https://github.com/jppuche) — building security tools for AI-assisted development.
+Made by [Juan Puche](https://github.com/jppuche) - building security tools for AI-assisted development.

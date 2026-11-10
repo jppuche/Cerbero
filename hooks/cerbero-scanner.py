@@ -1,7 +1,7 @@
 """Cerbero: standalone external scanner for Tier 0 checks.
 
 Runs BEFORE Claude reads potentially hostile content.
-All checks use stdlib only — no external dependencies.
+All checks use stdlib only - no external dependencies.
 
 Usage:
     python cerbero-scanner.py --file <path>              # Scan a file
@@ -21,7 +21,7 @@ SCANNER_VERSION = "1.3.0"
 
 # --- Suppression annotation detection (H-SEC-003) ---
 # Suppression annotations in scanned content are treated as evasion attempts.
-# The scanner evaluates UNTRUSTED content — self-suppression is a bypass vector.
+# The scanner evaluates UNTRUSTED content - self-suppression is a bypass vector.
 
 _SUPPRESS_ANNOTATION = re.compile(
     r"(?:#|//|<!--)\s*cerbero:ignore-next-line\s*(?:-->)?\s*$"
@@ -74,23 +74,23 @@ ZERO_WIDTH_CHARS = {
     0x180E: "MONGOLIAN VOWEL SEPARATOR",
 }
 
-# Tag characters (U+E0000-U+E007F) — 100% ASR for smuggling (Rehberger 2024).
+# Tag characters (U+E0000-U+E007F) - 100% ASR for smuggling (Rehberger 2024).
 # 3+ consecutive = suspicious. Full block includes U+E0001 (LANGUAGE TAG).
 # Used in emoji tag sequences but exploited for instruction smuggling
 # in MCP tool descriptions (confirmed: Claude, Copilot, Cursor).
 TAG_CHAR_PATTERN = re.compile(r"[\U000E0000-\U000E007F]{3,}")
 
-# Bidi override characters — make text render in misleading order during review.
+# Bidi override characters - make text render in misleading order during review.
 BIDI_OVERRIDE_PATTERN = re.compile(
     r"[\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069]"
 )
 
-# Variation Selectors — VS1-16 (U+FE00-FE0F) + VS17-256 (U+E0100-E01EF).
+# Variation Selectors - VS1-16 (U+FE00-FE0F) + VS17-256 (U+E0100-E01EF).
 # Glassworm campaign (Mar 2026, 400+ repos) used VS for binary encoding.
 # 2+ consecutive = suspicious (1 VS after base char is legitimate emoji modifier).
 VS_PATTERN = re.compile(r"[\uFE00-\uFE0F\U000E0100-\U000E01EF]{2,}")
 
-# Sneaky Bits — U+2062 (invisible times) / U+2064 (invisible plus).
+# Sneaky Bits - U+2062 (invisible times) / U+2064 (invisible plus).
 # Binary encoding technique (Rehberger, Mar 2025). 3+ consecutive = suspicious.
 SNEAKY_BITS_PATTERN = re.compile(r"[\u2062\u2064]{3,}")
 

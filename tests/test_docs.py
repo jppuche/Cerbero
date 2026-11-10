@@ -51,7 +51,7 @@ class TestStaleGuidanceAbsent(unittest.TestCase):
         "(I-3)",
         "C-SEC-",
         "Sentinel",                 # Ignite agent name
-        "v0.3.2",                   # agent-ops kit version, not a Cerbero version
+        "v0.3.2",                   # a downstream copy's version, not a Cerbero version
         "Sandbox compliance",       # replaced by "Isolation compliance"
         "Sandbox enforcement",
     ]

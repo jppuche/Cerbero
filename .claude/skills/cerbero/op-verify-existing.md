@@ -12,14 +12,14 @@ Execution agent: Claude (active instance)
 - **The snapshot is the server list with each server's configuration and connection status.** It does not contain tool definitions (Claude Code CLI reference and MCP page, read 2026-11-10; the `--json` flag is not documented there - if the command rejects it, run it without the flag). So the hash detects an added, removed or reconfigured server, and it also changes when a server is merely down. It does **not** detect a server that keeps its configuration and changes a tool description. Say so in the report; do not present an unchanged hash as proof that tool descriptions are unchanged.
 - Step 3's comparison of tool definitions is possible only where definitions were saved at evaluation time. Where they were not, compare what the snapshot holds and list tool definitions as `NOT CHECKED`.
 
-## Step 1 — Generate Current Snapshot
+## Step 1 - Generate Current Snapshot
 
 ```powershell
 claude mcp list --json | Out-File -Encoding utf8 "$env:TEMP/mcp-current-inventory.json"
 (Get-FileHash "$env:TEMP/mcp-current-inventory.json" -Algorithm SHA256).Hash | Out-File "$env:TEMP/mcp-current.sha256"
 ```
 
-## Step 2 — Compare Against Baseline
+## Step 2 - Compare Against Baseline
 
 ```powershell
 $BASELINE_HASH = (Get-Content .claude/security/mcp-baseline.sha256).Trim()
@@ -30,7 +30,7 @@ If hashes match: report "No changes detected since <baseline-date>." End operati
 
 If hashes differ: proceed to Step 3.
 
-## Step 3 — Identify and Classify Changes
+## Step 3 - Identify and Classify Changes
 
 Compare `.claude/security/mcp-inventory.json` with `$env:TEMP/mcp-current-inventory.json`.
 
@@ -46,7 +46,7 @@ Apply detection patterns from SKILL.md to all new/changed text.
 
 **Version drift check:** If a server's version differs from the approved version in its evaluation report, classify as SUSPICIOUS regardless of other changes (requires re-evaluation).
 
-## Step 4 — Web Research on Changed Servers
+## Step 4 - Web Research on Changed Servers
 
 For each server with SUSPICIOUS or MALICIOUS changes, run one query:
 
@@ -56,10 +56,10 @@ For each server with SUSPICIOUS or MALICIOUS changes, run one query:
 
 Add findings to report.
 
-## Step 5 — Report
+## Step 5 - Report
 
 ```
-CERBERO — VERIFICATION REPORT
+CERBERO - VERIFICATION REPORT
 ================================
 Date: <ISO 8601>
 Baseline date: <from baseline-date.txt>
@@ -80,7 +80,7 @@ CHANGES:
 RECOMMENDATION: <no action / re-evaluate via op-evaluate-mcp / disable server>
 ```
 
-## Step 6 — Baseline Update
+## Step 6 - Baseline Update
 
 Only if ALL changes are BENIGN:
 

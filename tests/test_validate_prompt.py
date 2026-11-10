@@ -5,7 +5,7 @@ The hook BLOCKS (exit 2) only text aimed at the agent's own instructions
 jailbreak term, format-injection tags, invisible-Unicode smuggling, any of
 those inside a comment or Base64). Ordinary phrasing that merely contains a
 trigger word WARNS on stderr and passes (exit 0). Cases ported from the
-agent-ops kit's regression fixtures (false positives reported 2026-10-08).
+regression fixtures from a downstream copy (false positives reported 2026-10-08).
 
 Input is sent as UTF-8 bytes under PYTHONIOENCODING=cp1252, the Windows
 console condition. Attack text is assembled from fragments (_cat) so this

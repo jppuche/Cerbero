@@ -6,19 +6,19 @@ Execution agent: Claude (active instance)
 
 ## Table of Contents
 
-1. [Source Code Review](#step-1--source-code-review)
-2. [Reputation and Community Intelligence](#step-2--reputation-and-community-intelligence)
-3. [Dependency Audit](#step-3--dependency-audit)
-4. [Automated Scan](#step-4--automated-scan-recommended-not-required)
-5. [Cerbero Automated + Semantic Analysis](#step-4b--cerbero-automated--semantic-analysis)
-6. [Risk Classification](#step-5--risk-classification)
-7. [Verdict](#step-6--verdict)
-8. [Report](#step-7--report)
-9. [Post-Approval](#step-8--post-approval-only-if-approved-or-human-approves-after-review)
+1. [Source Code Review](#step-1---source-code-review)
+2. [Reputation and Community Intelligence](#step-2---reputation-and-community-intelligence)
+3. [Dependency Audit](#step-3---dependency-audit)
+4. [Automated Scan](#step-4---automated-scan-recommended-not-required)
+5. [Cerbero Automated + Semantic Analysis](#step-4b---cerbero-automated--semantic-analysis)
+6. [Risk Classification](#step-5---risk-classification)
+7. [Verdict](#step-6---verdict)
+8. [Report](#step-7---report)
+9. [Post-Approval](#step-8---post-approval-only-if-approved-or-human-approves-after-review)
 
 ---
 
-## Step 1 — Source Code Review
+## Step 1 - Source Code Review
 
 1. Locate the source repository (npm registry links to GitHub).
 2. Verify npm author matches GitHub repo owner.
@@ -30,18 +30,18 @@ Execution agent: Claude (active instance)
    - `fs.readFileSync` / `fs.writeFileSync` outside declared scope
    - `process.env` reads beyond documented requirements
 6. Locate tool definitions (functions registered via `server.tool()` or equivalent).
-7. Analyze each tool definition — not just `description`, but also parameter names, default values, enum values, and input schema structure. Apply detection patterns from SKILL.md to ALL text fields:
+7. Analyze each tool definition - not just `description`, but also parameter names, default values, enum values, and input schema structure. Apply detection patterns from SKILL.md to ALL text fields:
    - PASS: Declarative, description under 200 chars, no imperative language in any field.
    - FAIL: Contains injection phrases, encoded content, description exceeds 500 chars without justification, or parameter names/defaults/enums contain model-targeting language.
    - **Invisible Unicode check:** Scan all tool description fields for Tag Characters (U+E0000-E007F), Variation Selectors, Bidi overrides. These have confirmed 100% ASR for instruction smuggling in MCP tool descriptions (Rehberger 2025). If present → CRITICAL, regardless of visible content.
-8. **Auth check (remote servers only — skip for stdio transport):**
+8. **Auth check (remote servers only - skip for stdio transport):**
    For servers using SSE or HTTP transport, verify:
    - Connection uses HTTPS (not HTTP).
    - Authentication method documented (OAuth 2.0, API key, bearer token).
    - Tokens are NOT hardcoded in MCP config (must use `${ENV_VAR}`).
    - Server does not expose unauthenticated endpoints.
 
-## Step 2 — Reputation and Community Intelligence
+## Step 2 - Reputation and Community Intelligence
 
 ### 2a. Basic reputation
 
@@ -71,7 +71,7 @@ Cap: 3 queries maximum. Stop early on confirmed vulnerability.
 
 Search for CVEs associated with the package name. Any active (unpatched) CVE is a REJECT.
 
-## Step 3 — Dependency Audit
+## Step 3 - Dependency Audit
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:TEMP\mcp-audit-<package-name>"
@@ -92,7 +92,7 @@ npm audit signatures
 
 > **Residual risk:** `npm install --ignore-scripts` downloads the full dependency tree to disk. For audit-only scenarios, consider `npm install --ignore-scripts --package-lock-only` to generate the lock file without downloading, then `npm audit` on the lock file.
 
-## Step 4 — Automated Scan (recommended, not required)
+## Step 4 - Automated Scan (recommended, not required)
 
 ### 4a. Check external scanner availability
 
@@ -114,7 +114,7 @@ mcp-scanner --version 2>&1
 
 Any YARA detection: FLAG for review. YARA findings complement but do not replace Cerbero T0-T3 analysis.
 
-## Step 4b — Cerbero Automated + Semantic Analysis
+## Step 4b - Cerbero Automated + Semantic Analysis
 
 When Tier 1-2 checks (Steps 1, 3) produce SUSPICIOUS flags or publisher is untrusted:
 
@@ -147,11 +147,11 @@ Using ONLY pre-processed content from 4b.2:
 3. Look for multi-stage attack patterns.
 4. Document: BENIGN / SUSPICIOUS / MALICIOUS.
 
-## Step 5 — Risk Classification
+## Step 5 - Risk Classification
 
 Classify per the Risk Classification table in SKILL.md. Record the risk level and required mitigations.
 
-## Step 6 — Verdict
+## Step 6 - Verdict
 
 **Pre-verdict check:** before the verdict, list steps 1-7 with their status (COMPLETED or SKIPPED) and the reason for each SKIPPED one. A step skipped with no reason blocks the verdict: an APPROVED that rests on a step nobody ran is the failure this operation exists to prevent.
 
@@ -172,12 +172,12 @@ Apply multi-scanner trigger logic (see SKILL.md):
 | 1 Tier 1-2 check flagged (non-injection) | REQUIRES HUMAN REVIEW |
 | All checks pass, publisher trusted, risk MEDIUM or lower | APPROVED |
 
-## Step 7 — Report
+## Step 7 - Report
 
 Generate and present to user:
 
 ```
-CERBERO — MCP EVALUATION REPORT
+CERBERO - MCP EVALUATION REPORT
 =================================
 Package: <name>@<version>
 Approved SHA: <npm shasum>
@@ -185,39 +185,39 @@ Source: <url>
 Publisher: <name> | Trusted: YES/NO
 Date: <ISO 8601>
 
-STEP 1 — SOURCE CODE
+STEP 1 - SOURCE CODE
   Typosquat check: PASS/FLAG (<details>)
   Supply chain integrity: PASS/FLAG (<details>)
   Dangerous patterns: <list or NONE>
   Tool schemas: <tool>: PASS/FAIL (<reason>) [per tool]
   Auth check (remote only): PASS/FAIL/N/A (stdio) (<details>)
 
-STEP 2 — REPUTATION & COMMUNITY
+STEP 2 - REPUTATION & COMMUNITY
   Stars: <n> | Downloads/week: <n> | Last updated: <date>
   Web research findings: <NONE / COMMUNITY CONCERN / CONFIRMED VULNERABILITY>
   Sources: <URLs if findings>
   CVEs: <list or NONE>
 
-STEP 3 — DEPENDENCIES
+STEP 3 - DEPENDENCIES
   npm audit high/critical: <count>
   npm provenance: VERIFIED / UNSIGNED / FAILED
   Suspicious packages: <list or NONE>
 
-STEP 4 — AUTOMATED SCAN
+STEP 4 - AUTOMATED SCAN
   external-scanner (cisco-ai-mcp-scanner): PASS/FLAG/SKIPPED | Detections: <list or NONE>
 
-STEP 4b — SEMANTIC ANALYSIS
+STEP 4b - SEMANTIC ANALYSIS
   Status: PERFORMED/SKIPPED
   Findings: <list or NONE>
 
-STEP 5 — RISK: <MEDIUM / HIGH / CRITICAL>
+STEP 5 - RISK: <MEDIUM / HIGH / CRITICAL>
   sandbox_required: <true (CRITICAL) / false>
 
 VERDICT: <APPROVED / REQUIRES HUMAN REVIEW / REJECTED>
 REASON: <one line>
 ```
 
-## Step 8 — Post-Approval (only if APPROVED or human approves after review)
+## Step 8 - Post-Approval (only if APPROVED or human approves after review)
 
 ### Isolation enforcement (before installation)
 
