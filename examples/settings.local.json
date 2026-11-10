@@ -28,7 +28,6 @@
   "hooks": {
     "UserPromptSubmit": [
       {
-        "matcher": "*",
         "hooks": [
           {
             "type": "command",
@@ -57,7 +56,7 @@
         ]
       },
       {
-        "matcher": "WebFetch|^mcp__",
+        "matcher": "^(WebFetch|WebSearch|mcp__.*)$",
         "hooks": [
           {
             "type": "command",
@@ -68,16 +67,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "WebFetch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/validate-tool-output.py\""
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__*",
+        "matcher": "^(WebFetch|WebSearch|mcp__.*)$",
         "hooks": [
           {
             "type": "command",

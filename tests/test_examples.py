@@ -42,6 +42,29 @@ class TestExampleSettings(unittest.TestCase):
                 self.assertTrue(any(_matches(m, tool) for m in matchers))
         self.assertFalse(any(_matches(m, "Read") for m in matchers))
 
+    def test_no_glob_style_mcp_matcher(self):
+        # "mcp__*" is a regex ("mcp_" then any number of "_"), not a glob.
+        for event, entries in self.hooks.items():
+            for entry in entries:
+                with self.subTest(event=event, matcher=entry.get("matcher")):
+                    self.assertNotEqual(entry.get("matcher"), "mcp__*")
+
+    def test_user_prompt_submit_has_no_matcher(self):
+        # UserPromptSubmit does not support matchers; a key there is ignored.
+        for entry in self.hooks.get("UserPromptSubmit", []):
+            self.assertNotIn("matcher", entry)
+
+    def test_external_content_hooks_cover_exactly_external_tools(self):
+        for event, script in (("PreToolUse", "untrusted-source-reminder.py"),
+                              ("PostToolUse", "validate-tool-output.py")):
+            matchers = _matchers_for(self.hooks, event, script)
+            self.assertTrue(matchers, script)
+            for tool, want in (("WebFetch", True), ("WebSearch", True),
+                               ("mcp__github__search", True), ("Bash", False),
+                               ("Read", False), ("xmcp_tool", False)):
+                with self.subTest(script=script, tool=tool):
+                    self.assertEqual(any(_matches(m, tool) for m in matchers), want)
+
 
 if __name__ == "__main__":
     unittest.main()
