@@ -6,6 +6,12 @@ Execution agent: Claude (active instance)
 
 ---
 
+## What this check covers (read first)
+
+- **It needs the `claude` CLI on PATH.** Where only the desktop app is installed, `claude mcp list` does not exist. Then report `RUG PULL CHECK: NOT RUN (claude CLI not available)` and stop. A check that did not run is never reported as `UNCHANGED`.
+- **The snapshot is the server list with each server's configuration and connection status.** It does not contain tool definitions (Claude Code CLI reference and MCP page, read 2026-11-10; the `--json` flag is not documented there - if the command rejects it, run it without the flag). So the hash detects an added, removed or reconfigured server, and it also changes when a server is merely down. It does **not** detect a server that keeps its configuration and changes a tool description. Say so in the report; do not present an unchanged hash as proof that tool descriptions are unchanged.
+- Step 3's comparison of tool definitions is possible only where definitions were saved at evaluation time. Where they were not, compare what the snapshot holds and list tool definitions as `NOT CHECKED`.
+
 ## Step 1 — Generate Current Snapshot
 
 ```powershell
@@ -58,7 +64,8 @@ CERBERO — VERIFICATION REPORT
 Date: <ISO 8601>
 Baseline date: <from baseline-date.txt>
 
-STATUS: UNCHANGED / CHANGED
+STATUS: UNCHANGED / CHANGED / NOT RUN (<reason>)
+COVERAGE: server list + configuration + connection status. Tool definitions: CHECKED / NOT CHECKED
 
 [If CHANGED:]
 CHANGES:
@@ -83,14 +90,14 @@ Copy-Item "$env:TEMP/mcp-current-inventory.json" .claude/security/mcp-inventory.
 (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") | Out-File .claude/security/baseline-date.txt
 ```
 
-**ALWAYS notify the user when baseline is updated**, even if all changes are BENIGN. Display:
+Tell the user whenever the baseline is updated, even when every change is BENIGN: a silent update would hide the moment a rug pull was accepted. Write it in the user's language, with these fields:
 
 ```
-Cerbero: baseline actualizado.
-  Fecha anterior: <previous baseline-date>
-  Fecha nueva: <new date>
-  Cambios registrados: <count> (todos BENIGN)
-  Servidores afectados: <list of server names with changes>
+Cerbero: baseline updated.
+  Previous date: <previous baseline-date>
+  New date: <new date>
+  Changes recorded: <count> (all BENIGN)
+  Servers affected: <list of server names with changes>
 ```
 
 If any change is SUSPICIOUS or MALICIOUS: do NOT update baseline. Wait for human decision.
