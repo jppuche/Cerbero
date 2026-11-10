@@ -13,7 +13,7 @@
 - One *Scanner path* definition in SKILL.md (project install, then `~/.claude/hooks/cerbero/`); operations write `<scanner>`
 - `sandbox_required` is recorded in the MCP evaluation report and the `[security]` log entry, where the full audit reads it
 - `examples/settings.local.json`: no matcher on `UserPromptSubmit`; external-content hooks use `^(WebFetch|WebSearch|mcp__.*)$` (`mcp__*` was a regex, and WebSearch output was not scanned)
-- README: rug-pull claim narrowed to what the baseline covers; isolation guidance corrected
+- README: rug-pull claim narrowed to what the baseline covers; isolation guidance corrected; the install claim matches the skill (it installs on its own only on APPROVED); Quick Start creates the folders it copies into; an FAQ entry on scanning Cerbero's own files
 
 ### Added
 - Tests: `test_docs.py` (stale strings, required rules, links and anchors, scanner path, isolation record), `test_examples.py` (hook wiring), `test_scanner_json.py`, `test_validate_prompt.py`, `test_versions.py`, PowerShell cases in `test_hooks_io.py`
