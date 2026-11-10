@@ -121,10 +121,10 @@ When Tier 1-2 checks (Steps 1, 3) produce SUSPICIOUS flags or publisher is untru
 ### 4b.1 Run external scanner FIRST
 
 ```powershell
-Get-Content -Raw <tool-definitions.json> | python .claude/hooks/cerbero-scanner.py --stdin
+Get-Content -Raw <tool-definitions.json> | python <scanner> --stdin
 ```
 
-(PowerShell has no `<` input redirection. With a user-level install the scanner is at `~/.claude/hooks/cerbero/cerbero-scanner.py`; use whichever path exists.)
+(`<scanner>`: see *Scanner path* in SKILL.md. PowerShell has no `<` input redirection, hence `Get-Content -Raw`.)
 
 Feed tool definitions (descriptions, parameters, defaults, enums, schemas) as JSON. Review scanner JSON report.
 
@@ -134,7 +134,7 @@ Feed tool definitions (descriptions, parameters, defaults, enums, schemas) as JS
 ### 4b.2 Pre-process for Tier 3
 
 ```powershell
-python .claude/hooks/cerbero-scanner.py --file <source-file> --strip-only
+python <scanner> --file <source-file> --strip-only
 ```
 
 Strips comments and string literals. Use sanitized output for Claude's Tier 3 analysis. Prevents indirect prompt injection via code comments.
@@ -211,6 +211,7 @@ STEP 4b — SEMANTIC ANALYSIS
   Findings: <list or NONE>
 
 STEP 5 — RISK: <MEDIUM / HIGH / CRITICAL>
+  sandbox_required: <true (CRITICAL) / false>
 
 VERDICT: <APPROVED / REQUIRES HUMAN REVIEW / REJECTED>
 REASON: <one line>
@@ -228,7 +229,7 @@ REASON: <one line>
 
 1. Install the MCP server at the evaluated version.
 2. Record approved version: `<name>@<version>` with npm shasum.
-3. If CRITICAL: add `"sandbox_required": true` annotation.
+3. If CRITICAL: the report (Step 7) carries `sandbox_required: true` (means whole-process isolation; key name kept for compatibility). Repeat it in the `[security]` log entry of step 6, which is where the full audit (op-full-audit Step 4.6) looks for it. A planned redesign of rug-pull detection moves approval records to a file of their own; until then the report and the log entry are the record.
 4. Regenerate baseline:
    ```powershell
    claude mcp list --json | Out-File -Encoding utf8 .claude/security/mcp-inventory.json

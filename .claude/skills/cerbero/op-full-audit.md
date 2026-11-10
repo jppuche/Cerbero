@@ -58,7 +58,7 @@ Read `.claude/settings.local.json` and verify:
 3. `hooks` section has all three types: UserPromptSubmit, PreToolUse, PostToolUse. Also read `~/.claude/settings.json`: hooks installed at user level count, and are listed with their scope.
 4. No entries were added to `permissions.allow` that match dangerous shell patterns from SKILL.md.
 5. Count HIGH+ risk servers enabled simultaneously. If 3+: flag compound risk as CRITICAL.
-6. **Isolation compliance:** For each CRITICAL-risk server, verify `"sandbox_required": true` annotation (whole-process isolation: container, VM or sandbox-runtime; the built-in `/sandbox` does not count). Missing annotation on CRITICAL server: flag as CRITICAL finding.
+6. **Isolation compliance:** For each CRITICAL-risk server, find its evaluation record: the `[security]` log entry written by op-evaluate-mcp Step 8 (or the evaluation report, if the user kept it). The record must carry `sandbox_required: true`, meaning whole-process isolation (container, VM or sandbox-runtime; the built-in `/sandbox` does not count), and Claude Code must run that way. Missing annotation on a CRITICAL server: CRITICAL finding. No record found: report `Isolation compliance: NOT CHECKED (no evaluation record for <server>)`, which is also a finding under item 1.
 
 ## Step 5 - Hook Functionality
 
@@ -139,7 +139,7 @@ Date: <ISO 8601>
    Hooks configured: YES / NO (<missing types>)
    Suspicious allow entries: <list or NONE>
    Compound risk (3+ HIGH servers): YES / NO
-   Isolation compliance (CRITICAL servers): YES / NO (<missing>)
+   Isolation compliance (CRITICAL servers): YES / NO (<missing>) / NOT CHECKED (<no record for>)
 
 5. HOOKS (scope: project / user / both)
    validate-prompt.py: OK / MISSING

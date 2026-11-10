@@ -100,6 +100,12 @@ Cerbero uses a tiered detection system. All tiers run locally - no external APIs
 - Always for Skill evaluation (op-evaluate-skill 3a) and MCP semantic analysis (op-evaluate-mcp 4b.1)
 - `--strip-only` mode: removes comments/strings for safer Tier 3 analysis
 
+**Scanner path.** Operation files write the scanner as `<scanner>`. Resolve it once per operation, in this order, and use the first that exists:
+1. `.claude/hooks/cerbero-scanner.py` (project install)
+2. `~/.claude/hooks/cerbero/cerbero-scanner.py` (user install; in PowerShell `Join-Path $HOME ".claude/hooks/cerbero/cerbero-scanner.py"`)
+
+If neither exists, the scanner step is `NOT RUN (scanner not installed)`: say so in the report and do not open the content it was meant to screen.
+
 External scanners are **recommended complements**, not requirements. Tiered recommendation:
 - **Casual (1-3 MCPs, known publishers):** Cerbero local tiers (T0-T3) are sufficient.
 - **Active (5+ MCPs, mix of publishers):** Install `cisco-ai-mcp-scanner` in YARA-only mode (`uv tool install --python 3.13 cisco-ai-mcp-scanner`). Adds malware signature detection not covered by regex patterns.

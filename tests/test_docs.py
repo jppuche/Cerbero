@@ -107,6 +107,43 @@ class TestRequiredGuidancePresent(unittest.TestCase):
                     self.assertIn(s, text)
 
 
+class TestScannerPath(unittest.TestCase):
+    """One definition of where the scanner lives; operations refer to it."""
+
+    def test_defined_once_in_skill(self):
+        skill = _read("SKILL.md")
+        self.assertIn("**Scanner path.**", skill)
+        self.assertIn("`.claude/hooks/cerbero-scanner.py`", skill)
+        self.assertIn("`~/.claude/hooks/cerbero/cerbero-scanner.py`", skill)
+
+    def test_operations_use_placeholder(self):
+        for name in DOCS:
+            if not name.startswith("op-"):
+                continue
+            text = _read(name)
+            with self.subTest(doc=name):
+                self.assertNotRegex(text, r"python\s+\S*cerbero-scanner\.py")
+                self.assertNotIn(".claude/hooks/cerbero-scanner.py", text)
+        for name in ("op-evaluate-mcp.md", "op-evaluate-skill.md"):
+            with self.subTest(doc=name):
+                self.assertIn("python <scanner>", _read(name))
+
+
+class TestIsolationAnnotation(unittest.TestCase):
+    """The audit must know where sandbox_required is recorded."""
+
+    def test_report_carries_field(self):
+        mcp = _read("op-evaluate-mcp.md")
+        report = mcp.split("## Step 7", 1)[1].split("## Step 8", 1)[0]
+        self.assertIn("sandbox_required:", report)
+        self.assertIn("`[security]` log entry", mcp)
+
+    def test_audit_reads_the_record(self):
+        audit = _read("op-full-audit.md")
+        self.assertIn("`[security]` log entry", audit)
+        self.assertIn("NOT CHECKED (no evaluation record", audit)
+
+
 class TestLinksResolve(unittest.TestCase):
     """Every (#anchor), (file.md) and (file.md#anchor) link points somewhere."""
 
