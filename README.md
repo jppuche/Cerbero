@@ -385,6 +385,7 @@ Cerbero's detection maps to the [OWASP MCP Top 10](https://owasp.org/www-project
 
 `/cerbero verify` compares what each approved server offers now with what it offered when you approved it. What that does not cover:
 
+- **Not yet exercised against a real server.** The snapshot is unreleased and has run only against the fixture servers in `tests/fixtures/`: no real `npx`, `uvx` or `docker` launch, no real remote HTTP or OAuth server, no live npm or PyPI lookup. Try it first on a server from a publisher you already trust, and read `docs/design/rug-pull-snapshot.md` sec 8.3 for the full list.
 - **Client cloaking.** The snapshot identifies itself as `cerbero-snapshot`. A server that inspects the client name or its environment can show Cerbero a clean tool list and show Claude Code another. Cerbero does not imitate Claude Code's identity, so this is not detected
 - **Changes in the middle of a session.** The check runs when you run it. A server can change its tools afterwards and tell Claude Code to reload them. The runtime tripwire in `mcp-audit.py` narrows this gap only for a *new tool name*: it knows names, not descriptions
 - **Per-connection randomization.** Two listings in a row that differ are flagged `UNSTABLE`. A server that is stable within one launch and different on the next shows up as changed on every check, not as unstable

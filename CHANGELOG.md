@@ -2,7 +2,7 @@
 
 ## [Unreleased] - planned as 1.4.0
 
-Rug pull detection redesign (design: `docs/design/rug-pull-snapshot.md`). The four version markers stay at 1.3.0 until release.
+Rug pull detection redesign (design: `docs/design/rug-pull-snapshot.md`). The four version markers stay at 1.3.0 until release. Not yet exercised against a real MCP server: fixtures only (design sec 8.3).
 
 ### Fixed
 - **The rug pull baseline never held tool definitions.** `/cerbero verify`, `op-evaluate-mcp` Step 8 and `setup-guide.md` A.6 built it with `claude mcp list --json`. That flag does not exist, and the command's output is server health, which changes with the network and contains no tool description. Every call to it is removed
