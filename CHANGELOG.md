@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - planned as 1.4.0
+
+Rug pull detection redesign (design: `docs/design/rug-pull-snapshot.md`). The four version markers stay at 1.3.0 until release.
+
+### Fixed
+- **The rug pull baseline never held tool definitions.** `/cerbero verify`, `op-evaluate-mcp` Step 8 and `setup-guide.md` A.6 built it with `claude mcp list --json`. That flag does not exist, and the command's output is server health, which changes with the network and contains no tool description. Every call to it is removed
+- **`mcp-audit.py` reminder was invisible.** The "consider running /cerbero verify" reminder went to stderr with exit 0, which Claude Code discards. It is now a `systemMessage` in one JSON object on stdout
+
+### Added
+- **`hooks/cerbero-mcp-snapshot.py`** (a script, not a hook; stdlib only). `pins`: static launcher check (`UNPINNED`, `VERSION_DRIFT`, `LAUNCH_CHANGED`, `INTEGRITY_MISMATCH`), with an optional npm/PyPI integrity lookup (`--offline` disables it). `approve`: writes a server's approval record and refuses an unpinned launcher. `snapshot`: connects to each approved server (stdio, or Streamable HTTP with static headers; `initialize` and 2026-07-28 protocol eras), reads its instructions and every page of `tools/list` twice, and writes a normalized `cerbero-mcp-snapshot/1` file. `compare`: per-server, per-tool, per-field diff with the Tier 0 scanner run on the new text (exit 0 unchanged, 1 changed, 2 error, 3 legacy baseline). `accept`: moves the old baseline to `.claude/security/history/<timestamp>/` and writes the new one; a single-server snapshot is merged
+- **`.claude/security/mcp-approved.json`**: the approval record per server (launcher, version, integrity, risk, `sandbox_required`, date, configuration fingerprints). It is the launch allowlist: `snapshot` never starts a server without a record, with a changed command, from an untrusted workspace, unpinned (without `--allow-unpinned`) or marked `sandbox_required` (without `--inside-isolation`)
+- **Runtime tripwire in `mcp-audit.py`**: warns, once per session, on a call to a tool name that is not in the baseline of its server, or to a server the baseline does not cover. Warning only by default; `CERBERO_TRIPWIRE=ask` returns a permission prompt for an unknown tool of a baselined server, `off` disables it. Fail-open
+- Tests: `test_mcp_snapshot.py` and `test_mcp_tripwire.py`, with local fixture servers only (`tests/fixtures/fake_mcp_server.py`, `fake_mcp_http.py`). They also assert the documented blind spots (client cloaking is not detected)
+- `docs/design/rug-pull-snapshot.md`: the design, its verified facts and the maintainer's decisions
+
+### Changed
+- `op-verify-existing.md` rewritten around `pins`, `snapshot`, `compare`, `accept`; the report carries `Coverage`, `Pins` and a fixed limitation line. `op-evaluate-mcp.md`: APPROVED requires a pinned version, Step 8 records the approval and adds the server to the baseline. `op-full-audit.md`: every enabled server needs an approval record. `setup-guide.md` A.6: pin, approve (one time, by the user), snapshot, accept; minimum Claude Code v2.1.274 for the `mcp_server` hook field
+- **`mcp-baseline.sha256` changes meaning**: it now holds the inventory hash of the snapshot, not the hash of a file. `compare` always does the per-tool diff; the hash file is a convenience
+- README: the rug pull claim describes what the snapshot covers, with a *Rug pull detection limits* section (client cloaking, mid-session changes, OAuth/plugin/connector servers); "does not phone home" now names the two commands that use the network
+
+### Upgrading
+- A baseline from 1.3.0 or earlier cannot be migrated: it holds no tool definitions. `/cerbero verify` reports `BASELINE MIGRATION REQUIRED`; on your confirmation `accept` moves the old files to `history/<timestamp>-legacy/` (nothing is deleted) and writes a new baseline. That baseline is a new trust-on-first-use point: re-evaluate HIGH and CRITICAL servers first
+- Copy `hooks/cerbero-mcp-snapshot.py` next to the other scripts, pin each server to an exact version, and create the approval records once (`setup-guide.md` A.6)
+
 ## [1.3.0] - 2026-11-10
 
 ### Security
