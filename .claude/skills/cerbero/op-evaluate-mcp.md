@@ -128,6 +128,8 @@ Get-Content -Raw <tool-definitions.json> | python <scanner> --stdin
 
 Feed tool definitions (descriptions, parameters, defaults, enums, schemas) as JSON. Review scanner JSON report.
 
+Where `<tool-definitions.json>` comes from: before installation, from the source code (static review). Never start a server that has not been evaluated in order to list its tools. After installation, the snapshot written in Step 8.4 holds the definitions the server actually serves: scan that file the same way, and treat any difference from the source review as SUSPICIOUS.
+
 - Scanner verdict REJECT: skip Tier 3. Use scanner findings directly.
 - Scanner verdict SUSPICIOUS or CLEAN: proceed to 4b.2.
 
@@ -152,6 +154,8 @@ Using ONLY pre-processed content from 4b.2:
 Classify per the Risk Classification table in SKILL.md. Record the risk level and required mitigations.
 
 ## Step 6 - Verdict
+
+**Pinned version required:** APPROVED needs an install command with an exact version: `npx -y <pkg>@<version>`, `uvx <pkg>==<version>`, or a Docker image by digest (`image@sha256:...`). A bare `npx -y <pkg>`, `@latest`, a version range or an image tag runs whatever is newest on each start, which is the most common rug-pull path. If no exact version can be pinned, the verdict is REQUIRES HUMAN REVIEW with the reason `version not pinned`.
 
 **Pre-verdict check:** before the verdict, list steps 1-7 with their status (COMPLETED or SKIPPED) and the reason for each SKIPPED one. A step skipped with no reason blocks the verdict: an APPROVED that rests on a step nobody ran is the failure this operation exists to prevent.
 
@@ -227,15 +231,22 @@ REASON: <one line>
 
 ### Installation
 
-1. Install the MCP server at the evaluated version.
-2. Record approved version: `<name>@<version>` with npm shasum.
-3. If CRITICAL: the report (Step 7) carries `sandbox_required: true` (means whole-process isolation; key name kept for compatibility). Repeat it in the `[security]` log entry of step 6, which is where the full audit (op-full-audit Step 4.6) looks for it. A planned redesign of rug-pull detection moves approval records to a file of their own; until then the report and the log entry are the record.
-4. Regenerate baseline:
+`<snapshot>` is `cerbero-mcp-snapshot.py`: see *Snapshot script path* in SKILL.md.
+
+1. Install the MCP server at the evaluated version, pinned in the configuration itself: the `command`/`args` Claude Code will run must name the exact version (see *Pinned version required* in Step 6). Not approved until pinned.
+2. Record the approval. This writes the server's entry to `.claude/security/mcp-approved.json` (launcher, version, integrity, risk, `sandbox_required`, date, configuration fingerprints) and must happen before step 4, because only servers recorded there are ever started by the snapshot:
    ```powershell
-   claude mcp list --json | Out-File -Encoding utf8 .claude/security/mcp-inventory.json
-   (Get-FileHash .claude/security/mcp-inventory.json -Algorithm SHA256).Hash | Out-File .claude/security/mcp-baseline.sha256
-   (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") | Out-File .claude/security/baseline-date.txt
+   python <snapshot> approve <name> --risk <MEDIUM|HIGH|CRITICAL> --integrity "<npm dist.integrity or shasum from the report>"
    ```
-   **Notify user:** `Cerbero: baseline regenerated after installing <name>@<version>. Date: <new date>.`
+   The command refuses an unpinned launcher. Without `--integrity` it asks the public registry for the integrity of the pinned version (package name and version only; `--offline` skips that).
+3. If CRITICAL: `approve` sets `sandbox_required: true` in the record (it means whole-process isolation; key name kept for compatibility), and the report (Step 7) carries the same field. Repeat it in the `[security]` log entry of step 6: the full audit (op-full-audit Step 4.6) reads the approval record first and the log entry as a fallback.
+4. Add the server to the baseline. `snapshot` starts the server just installed, reads its tool definitions, and `accept` merges that one server into the existing baseline (the previous baseline files move to `.claude/security/history/`):
+   ```powershell
+   python <snapshot> snapshot --server <name> --out "$env:TEMP/mcp-new-server.json"
+   Get-Content -Raw "$env:TEMP/mcp-new-server.json" | python <scanner> --stdin
+   python <snapshot> accept --current "$env:TEMP/mcp-new-server.json"
+   ```
+   If the snapshot lists the server under `not_checked`, say so with the reason: the server is approved but has no tool-definition baseline (for example `oauth`, or `isolation` for a `sandbox_required` server when this session is not inside that isolation). If the scanner verdict on the snapshot is `REJECT`, do not run `accept`: the server serves something the source review did not show. Stop and report.
+   **Notify user:** `Cerbero: baseline updated after installing <name>@<version>. Date: <new date>.`
 5. Add to `enabledMcpjsonServers` (requires human confirmation).
 6. Log evaluation result with tag `[security]` in the project's designated log file.

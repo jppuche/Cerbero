@@ -54,6 +54,8 @@ class TestStaleGuidanceAbsent(unittest.TestCase):
         "v0.3.2",                   # a downstream copy's version, not a Cerbero version
         "Sandbox compliance",       # replaced by "Isolation compliance"
         "Sandbox enforcement",
+        "mcp list --json",          # the flag never existed; the baseline comes from cerbero-mcp-snapshot.py
+        "Get-FileHash",             # the baseline hash is the inventory hash written by `accept`
     ]
 
     def test_absent(self):
@@ -96,8 +98,32 @@ class TestRequiredGuidancePresent(unittest.TestCase):
         "op-verify-existing.md": [
             "NOT RUN",
             "A check that did not run is never reported as `UNCHANGED`.",
+            "BASELINE MIGRATION REQUIRED",
+            "Limitation: point-in-time check; does not see mid-session changes or client-specific tool lists.",
+            "Coverage: <n> servers checked, <m> skipped",
+            "python <snapshot> pins",
+            "python <snapshot> compare",
+            "python <snapshot> accept",
         ],
     }
+    PRESENT["SKILL.md"] += [
+        "**Snapshot script path.**",
+        "mcp-approved.json",
+        "cerbero-mcp-snapshot/1",
+    ]
+    PRESENT["op-evaluate-mcp.md"] += [
+        "**Pinned version required:**",
+        "python <snapshot> approve <name>",
+        "python <snapshot> snapshot --server <name>",
+    ]
+    PRESENT["op-full-audit.md"] += [
+        "mcp-approved.json",
+    ]
+    PRESENT["setup-guide.md"] = [
+        "v2.1.274",
+        "cerbero-mcp-snapshot.py approve <server-name>",
+        "CERBERO_TRIPWIRE=ask",
+    ]
 
     def test_present(self):
         for name, strings in self.PRESENT.items():
@@ -105,6 +131,45 @@ class TestRequiredGuidancePresent(unittest.TestCase):
             for s in strings:
                 with self.subTest(doc=name, string=s):
                     self.assertIn(s, text)
+
+
+class TestRugPullClaims(unittest.TestCase):
+    """The README says what the snapshot covers and names its blind spots."""
+
+    def setUp(self):
+        with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as f:
+            self.readme = f.read()
+
+    def test_no_call_to_the_nonexistent_flag(self):
+        self.assertNotIn("mcp list --json", self.readme)
+
+    def test_limits_are_stated(self):
+        for s in ("### Rug pull detection limits", "Client cloaking", "cerbero-snapshot",
+                  "point-in-time", "OAuth", "never as unchanged"):
+            with self.subTest(string=s):
+                self.assertIn(s, self.readme)
+
+    def test_operations_use_the_snapshot_placeholder(self):
+        for name in DOCS:
+            if not name.startswith("op-"):
+                continue
+            with self.subTest(doc=name):
+                self.assertNotRegex(_read(name), r"python\s+\S*cerbero-mcp-snapshot\.py")
+
+    def test_documented_subcommands_and_flags_exist(self):
+        with open(os.path.join(ROOT, "hooks", "cerbero-mcp-snapshot.py"), encoding="utf-8") as f:
+            script = f.read()
+        text = "".join(_read(name) for name in DOCS) + self.readme
+        for sub in ("pins", "approve", "snapshot", "compare", "accept"):
+            with self.subTest(subcommand=sub):
+                self.assertIn('sub.add_parser("%s"' % sub, script)
+        for flag in set(re.findall(r"`(--[a-z][a-z-]+)", text)):
+            if flag in ("--dangerously-skip-permissions", "--sandbox", "--scan-yara", "--strip-only",
+                        "--stdin", "--file", "--version", "--python", "--ignore-scripts",
+                        "--package-lock-only"):
+                continue
+            with self.subTest(flag=flag):
+                self.assertIn('"%s"' % flag, script)
 
 
 class TestScannerPath(unittest.TestCase):

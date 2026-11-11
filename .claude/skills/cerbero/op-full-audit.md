@@ -23,7 +23,7 @@ Examples of past MCP ecosystem CVEs, as of 2025-12. This list is frozen and is n
 
 ## Step 2 - Rug Pull Detection
 
-Execute [op-verify-existing.md](op-verify-existing.md) in full. Include its report as a section in the audit report.
+Execute [op-verify-existing.md](op-verify-existing.md) in full. Include its report as a section in the audit report, with its `Coverage` and `Pins` lines: servers that were skipped and launchers that are unpinned are audit findings, not footnotes.
 
 ## Step 3 - Re-scan All Components (recommended)
 
@@ -50,7 +50,7 @@ Record all findings.
 
 Read `.claude/settings.local.json` and verify:
 
-1. `enabledMcpjsonServers` contains ONLY servers with a completed evaluation report.
+1. `enabledMcpjsonServers` contains ONLY servers with a completed evaluation report, and every entry has a record in `.claude/security/mcp-approved.json` (written by op-evaluate-mcp Step 8.2). An enabled server without a record is a finding: it was never approved through Cerbero, and the rug pull check skips it as `not_approved`.
 2. `permissions.deny` contains the mandatory entries:
    - `Bash(curl:*)`, `Bash(wget:*)`, `Bash(rm -rf:*)`
    - `Read(./.env)`, `Read(./secrets/**)`, `Read(~/.ssh/**)`
@@ -58,7 +58,7 @@ Read `.claude/settings.local.json` and verify:
 3. `hooks` section has all three types: UserPromptSubmit, PreToolUse, PostToolUse. Also read `~/.claude/settings.json`: hooks installed at user level count, and are listed with their scope.
 4. No entries were added to `permissions.allow` that match dangerous shell patterns from SKILL.md.
 5. Count HIGH+ risk servers enabled simultaneously. If 3+: flag compound risk as CRITICAL.
-6. **Isolation compliance:** For each CRITICAL-risk server, find its evaluation record: the `[security]` log entry written by op-evaluate-mcp Step 8 (or the evaluation report, if the user kept it). The record must carry `sandbox_required: true`, meaning whole-process isolation (container, VM or sandbox-runtime; the built-in `/sandbox` does not count), and Claude Code must run that way. Missing annotation on a CRITICAL server: CRITICAL finding. No record found: report `Isolation compliance: NOT CHECKED (no evaluation record for <server>)`, which is also a finding under item 1.
+6. **Isolation compliance:** For each CRITICAL-risk server, find its evaluation record: its entry in `.claude/security/mcp-approved.json`, else the `[security]` log entry written by op-evaluate-mcp Step 8 (or the evaluation report, if the user kept it). The record must carry `sandbox_required: true`, meaning whole-process isolation (container, VM or sandbox-runtime; the built-in `/sandbox` does not count), and Claude Code must run that way. Missing annotation on a CRITICAL server: CRITICAL finding. No record found: report `Isolation compliance: NOT CHECKED (no evaluation record for <server>)`, which is also a finding under item 1.
 
 ## Step 5 - Hook Functionality
 
@@ -71,6 +71,7 @@ $scripts = [ordered]@{
     "pre-tool-security.py"         = "required"
     "mcp-audit.py"                 = "required"
     "cerbero-scanner.py"           = "required (external scanner)"
+    "cerbero-mcp-snapshot.py"      = "required (rug pull check; a script, not a hook, so it is never wired)"
     "validate-tool-output.py"      = "optional (PostToolUse scanner)"
     "untrusted-source-reminder.py" = "optional (untrusted source reminder)"
 }
@@ -125,7 +126,9 @@ Date: <ISO 8601>
    Status: CURRENT / OUTDATED / CRITICAL
 
 2. RUG PULL CHECK
-   Status: UNCHANGED / CHANGED / NOT RUN (<reason>)
+   Status: UNCHANGED / CHANGED / BASELINE MIGRATION REQUIRED / NOT RUN (<reason>)
+   Coverage: <n> servers checked, <m> skipped (<server: reason, ...>)
+   Pins: <n> pinned, <m> findings (<server: finding, ...>)
    [Include op-verify-existing report if CHANGED]
 
 3. COMPONENT SCAN
@@ -135,6 +138,7 @@ Date: <ISO 8601>
 
 4. CONFIGURATION
    Enabled servers match evaluations: YES / NO (<mismatches>)
+   Enabled servers have an approval record (mcp-approved.json): YES / NO (<missing>)
    Mandatory deny rules present: YES / NO (<missing>)
    Hooks configured: YES / NO (<missing types>)
    Suspicious allow entries: <list or NONE>
@@ -146,6 +150,7 @@ Date: <ISO 8601>
    pre-tool-security.py: OK / MISSING
    mcp-audit.py: OK / MISSING
    cerbero-scanner.py: OK / MISSING
+   cerbero-mcp-snapshot.py: OK / MISSING
    validate-tool-output.py: OK / MISSING (optional)
    untrusted-source-reminder.py: OK / MISSING (optional)
 

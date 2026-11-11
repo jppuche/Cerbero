@@ -7,7 +7,7 @@ This document is for human configuration. Do not load in agent context.
 - Node.js 18+
 - Python 3.10+
 - uv: https://docs.astral.sh/uv/ (for uvx commands)
-- Claude Code updated to latest stable (`/status` to check)
+- Claude Code updated to latest stable (`/status` to check). Minimum for the MCP tripwire: v2.1.274, the first version that tells a hook which server a tool call belongs to (`mcp_server`). On older versions the hook falls back to reading the server out of the `mcp__<server>__<tool>` name
 
 ## A.1 - Install External Scanner (recommended for 5+ MCPs)
 
@@ -162,6 +162,8 @@ Matcher notes (Claude Code hooks reference): a matcher made only of letters, dig
 
 > **NOTE:** `mcp-audit.py` writes `mcp-audit.log` and `invocation-counter.txt` to `$CERBERO_LOG_DIR` if set (set it in the hook command or in the settings `env` block to collect every project in one place; each entry carries a `project` field), else to `<project>/.claude/security/`, for project and user installs alike. `<project>` is `CLAUDE_PROJECT_DIR`, else the folder above the `.claude/` that holds the script, else the hook's `cwd`. Before Cerbero 1.2.1 a user install wrote to `~/.claude/security/`; old entries stay there.
 
+> **NOTE:** `mcp-audit.py` is also the baseline tripwire. Once a tool-definition baseline exists (A.6), a call to a tool that is not in the baseline of its server, or to a server the baseline does not cover, shows a `Cerbero tripwire:` warning (once per session for each). It only knows tool names, so it catches a tool added after approval, not a changed description. It never blocks. Set `CERBERO_TRIPWIRE=ask` (shell or settings `env` block) to get a permission prompt for a tool that was not in the baseline, or `CERBERO_TRIPWIRE=off` to disable the check.
+
 > **NOTE:** `validate-prompt.py` (UserPromptSubmit) blocks (exit 2) only on format-injection tags, tag-character smuggling, variation-selector runs, sneaky bits, and phrases aimed at the agent's own instructions ("ignore all previous instructions", "olvida tus reglas", "you are now ... unrestricted"), including inside comments or Base64. A trigger phrase on its own ("a partir de ahora ...", "don't mention it", "skip the lint rules") only prints a `Cerbero warning:` to stderr and the prompt goes through. Typing a canonical attack verbatim to discuss it is still blocked: pipe it through the script instead.
 
 ## A.4b - Install Cerbero Hook Scripts
@@ -177,6 +179,7 @@ Copy-Item ~/.claude/skills/cerbero/hooks/mcp-audit.py .claude/hooks/
 Copy-Item ~/.claude/skills/cerbero/hooks/cerbero-scanner.py .claude/hooks/
 Copy-Item ~/.claude/skills/cerbero/hooks/untrusted-source-reminder.py .claude/hooks/
 Copy-Item ~/.claude/skills/cerbero/hooks/validate-tool-output.py .claude/hooks/
+Copy-Item ~/.claude/skills/cerbero/hooks/cerbero-mcp-snapshot.py .claude/hooks/
 ```
 
 **If skill is per-project (.claude/skills/cerbero/):**
@@ -188,6 +191,7 @@ Copy-Item .claude/skills/cerbero/hooks/mcp-audit.py .claude/hooks/
 Copy-Item .claude/skills/cerbero/hooks/cerbero-scanner.py .claude/hooks/
 Copy-Item .claude/skills/cerbero/hooks/untrusted-source-reminder.py .claude/hooks/
 Copy-Item .claude/skills/cerbero/hooks/validate-tool-output.py .claude/hooks/
+Copy-Item .claude/skills/cerbero/hooks/cerbero-mcp-snapshot.py .claude/hooks/
 ```
 
 **User install (every project):**
@@ -202,6 +206,8 @@ Verify they run correctly:
 echo '{"prompt":"test"}' | python .claude/hooks/validate-prompt.py
 echo '{"tool_input":{"command":"echo hello"}}' | python .claude/hooks/pre-tool-security.py
 ```
+
+`cerbero-mcp-snapshot.py` is not a hook and is not wired in any settings file: `/cerbero verify` runs it. It lives next to the scanner because `compare` calls the scanner from its own folder.
 
 > **NOTE:** Hook scripts run with your user permissions, not the agent's. They are stdlib-only and auditable. Review them before installing. All of them read hook input as UTF-8 bytes, so they behave the same on a Windows console (cp1252) as elsewhere.
 
@@ -244,11 +250,48 @@ All other publishers (including vercel, microsoft, supabase, etc.) are evaluated
 
 ## A.6 - Generate Initial Baseline
 
+The baseline holds the tool definitions (names, descriptions, parameter schemas, annotations) and the instructions of each approved MCP server. `/cerbero verify` compares later snapshots against it. Skip this section if no MCP server is installed yet: `/cerbero evaluate-mcp` adds each server to the baseline when it approves it.
+
+**1. Check the launchers** (starts nothing):
+
 ```powershell
-claude mcp list --json | Out-File -Encoding utf8 .claude/security/mcp-inventory.json
-(Get-FileHash .claude/security/mcp-inventory.json -Algorithm SHA256).Hash | Out-File .claude/security/mcp-baseline.sha256
-(Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") | Out-File .claude/security/baseline-date.txt
+python .claude/hooks/cerbero-mcp-snapshot.py pins
 ```
+
+Pin every server reported as `UNPINNED` to an exact version in its configuration (`npx -y pkg@1.2.3`, `uvx pkg==1.2.3`, `docker run image@sha256:...`). A bare `npx -y pkg` runs whatever was published last. For a pinned npm or PyPI package, `pins` asks the public registry for the integrity of that version (package name and version only); add `--offline` to skip the lookup.
+
+**2. Approve the servers you already trust (one time).** Servers installed before this version have no approval record. For each one, decide whether you trust it as it is today, ideally after `/cerbero evaluate-mcp`, then record it:
+
+```powershell
+python .claude/hooks/cerbero-mcp-snapshot.py approve <server-name> --risk <MEDIUM|HIGH|CRITICAL>
+```
+
+This is the trust-on-first-use moment: the record says "this command, at this version, is what I approved". Do it yourself, one server at a time; do not let it be scripted over every configured server. `--risk CRITICAL` marks the server as `sandbox_required`.
+
+**3. Take the snapshot and accept it:**
+
+```powershell
+python .claude/hooks/cerbero-mcp-snapshot.py snapshot --out "$env:TEMP/mcp-current-inventory.json"
+python .claude/hooks/cerbero-mcp-snapshot.py accept --current "$env:TEMP/mcp-current-inventory.json"
+```
+
+`snapshot` starts each approved stdio server (and sends requests to each approved HTTP server) outside Claude Code to read its tool list. It never starts a server without an approval record, and it skips, with a reason:
+
+| Reason | Why | What to do |
+|--------|-----|------------|
+| `not_approved` | No record in `mcp-approved.json` | Step 2 |
+| `unpinned` | No exact version | Pin it (step 1). `--allow-unpinned` overrides, at your risk |
+| `launch_changed` | Command, arguments or URL changed since approval | Re-evaluate, then approve again |
+| `untrusted_workspace` | The server comes from the project's `.mcp.json` and the folder has not passed Claude Code's trust dialog | Open the project in Claude Code and accept the dialog, or pass `--trust-project` |
+| `isolation` | The record says `sandbox_required` | Run the snapshot inside the container or VM, with `--inside-isolation` |
+| `unsafe_args` | Windows: a `.cmd`/`.bat` launcher with arguments `cmd.exe` could re-interpret | Call the program directly instead of through a batch file |
+| `oauth`, `headers_helper`, `unsupported_transport`, `not_covered_source` | OAuth sign-in, `headersHelper`, SSE or WebSocket transport, plugin, claude.ai connector or managed server | Not covered: these servers have no baseline |
+
+`accept` writes `mcp-inventory.json`, `mcp-baseline.sha256` and `baseline-date.txt` in `.claude/security/`, after moving any previous ones to `.claude/security/history/`.
+
+**Upgrading from 1.3.0 or earlier.** The old `mcp-inventory.json` was the output of `claude mcp list` and holds no tool definitions. `/cerbero verify` reports `BASELINE MIGRATION REQUIRED` and, when you confirm, `accept` moves the old files to `history/<timestamp>-legacy/` and writes a new baseline. The new baseline records the servers as they are today: if one had already changed, the change is now part of the baseline, so re-evaluate HIGH and CRITICAL servers first.
+
+**Do not commit `mcp-approved.json` for others to inherit.** It is your approval, on your machine. A repository that ships both a `.mcp.json` and an approval record is asking you to run its server: the trust-dialog check above exists for that case.
 
 ## A.7 - Add Cerbero Reference to CLAUDE.md
 
@@ -272,9 +315,11 @@ Before installing any MCP server or Skill, execute Cerbero evaluation.
 - [ ] `.claude/security/` directory created
 - [ ] `.claude/security/trusted-publishers.txt` exists
 - [ ] Cerbero hook scripts installed in `.claude/hooks/` (A.4b)
+- [ ] Every MCP server launcher is pinned to an exact version (`cerbero-mcp-snapshot.py pins` reports no `UNPINNED`)
+- [ ] `.claude/security/mcp-approved.json` has a record for each installed MCP server (A.6)
 - [ ] Baseline files generated (if MCPs already installed)
 - [ ] `.claude/settings.local.json` has permissions and hooks
 - [ ] `CLAUDE.md` references Cerbero
-- [ ] Claude Code is latest stable version
+- [ ] Claude Code is latest stable version (v2.1.274 or later)
 - [ ] PostToolUse indirect injection scanner (`validate-tool-output.py`) + PreToolUse reminder (`untrusted-source-reminder.py`) installed (deployed by default)
 - [ ] (Optional) Additional external scanners or sandbox-runtime for defense-in-depth
