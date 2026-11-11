@@ -251,8 +251,9 @@ def main():
             }
         try:
             sys.stdout.write(json.dumps(out) + "\n")  # ASCII-only: safe on any console code page
-        except OSError:
-            pass
+            sys.stdout.flush()   # here, inside the try: a closed pipe must not surface at interpreter exit
+        except (OSError, ValueError):
+            os._exit(0)          # nobody is reading: skip the exit-time flush that would fail again (exit 120)
 
     sys.exit(0)
 
