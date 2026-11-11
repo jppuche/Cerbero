@@ -50,7 +50,7 @@ Record all findings.
 
 Read `.claude/settings.local.json` and verify:
 
-1. `enabledMcpjsonServers` contains ONLY servers with a completed evaluation report, and every entry has a record in `.claude/security/mcp-approved.json` (written by op-evaluate-mcp Step 8.2). An enabled server without a record is a finding: it was never approved through Cerbero, and the rug pull check skips it as `not_approved`.
+1. `enabledMcpjsonServers` contains ONLY servers with a completed evaluation report, and every entry has a record in `.claude/security/mcp-approved.json` (written by op-evaluate-mcp Step 8.2). An enabled server without a record is a finding: it was never approved through Cerbero, and the rug pull check skips it as `not_approved`. So is a record that `pins` reports as `APPROVAL_NOT_LOCAL` or `INVALID_RECORD`: it was not written by `approve` on this machine, or was edited.
 2. `permissions.deny` contains the mandatory entries:
    - `Bash(curl:*)`, `Bash(wget:*)`, `Bash(rm -rf:*)`
    - `Read(./.env)`, `Read(./secrets/**)`, `Read(~/.ssh/**)`

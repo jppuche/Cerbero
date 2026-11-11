@@ -266,7 +266,11 @@ Pin every server reported as `UNPINNED` to an exact version in its configuration
 python .claude/hooks/cerbero-mcp-snapshot.py approve <server-name> --risk <MEDIUM|HIGH|CRITICAL>
 ```
 
-This is the trust-on-first-use moment: the record says "this command, at this version, is what I approved". Do it yourself, one server at a time; do not let it be scripted over every configured server. `--risk CRITICAL` marks the server as `sandbox_required`.
+This is the trust-on-first-use moment: the record says "this command, with these arguments and this environment, at this version, is what I approved". Do it yourself, one server at a time; do not let it be scripted over every configured server. `--risk CRITICAL` marks the server as `sandbox_required`.
+
+`approve` refuses a launcher that is not pinned, and one it cannot verify: a command it does not recognize (a binary on PATH, `python -m ...`) or a pinned package from a custom registry or index. If you have checked such a launcher yourself, add `--allow-unverified`; the record then says so.
+
+The record is bound to your machine: `approve` also stores its hash in `~/.claude/security/cerbero-approvals.json`, and a record without that entry is ignored. Editing `mcp-approved.json` by hand, or changing the server's `command`, `args`, `url` or `env` afterwards, makes the record stop matching: approve again. To rotate a secret without a new approval, keep it in your environment and reference it as `${VAR}` inside `env`.
 
 **3. Take the snapshot and accept it:**
 
@@ -280,8 +284,12 @@ python .claude/hooks/cerbero-mcp-snapshot.py accept --current "$env:TEMP/mcp-cur
 | Reason | Why | What to do |
 |--------|-----|------------|
 | `not_approved` | No record in `mcp-approved.json` | Step 2 |
-| `unpinned` | No exact version | Pin it (step 1). `--allow-unpinned` overrides, at your risk |
-| `launch_changed` | Command, arguments or URL changed since approval | Re-evaluate, then approve again |
+| `approval_not_local` | The record was not written by `approve` on this machine, or was edited afterwards | Step 2, after you evaluate the server yourself |
+| `invalid_record` | The record lacks a field a gate needs | Step 2 |
+| `unpinned` | No exact version, or a launcher the script cannot verify and that you have not accepted | Pin it (step 1), or approve it with `--allow-unverified`. `--allow-unpinned` overrides, at your risk |
+| `launch_changed` | Command, arguments, URL or `env` block changed since approval | Re-evaluate, then approve again |
+| `integrity_mismatch` | A local server file changed since approval (it was not run) | Re-evaluate, then approve again |
+| `disabled` | A `disabledMcpjsonServers` entry rejects this `.mcp.json` server | Nothing: Claude Code does not run it either |
 | `untrusted_workspace` | The server comes from the project's `.mcp.json` and the folder has not passed Claude Code's trust dialog | Open the project in Claude Code and accept the dialog, or pass `--trust-project` |
 | `isolation` | The record says `sandbox_required` | Run the snapshot inside the container or VM, with `--inside-isolation` |
 | `unsafe_args` | Windows: a `.cmd`/`.bat` launcher with arguments `cmd.exe` could re-interpret | Call the program directly instead of through a batch file |
@@ -291,7 +299,7 @@ python .claude/hooks/cerbero-mcp-snapshot.py accept --current "$env:TEMP/mcp-cur
 
 **Upgrading from 1.3.0 or earlier.** The old `mcp-inventory.json` was the output of `claude mcp list` and holds no tool definitions. `/cerbero verify` reports `BASELINE MIGRATION REQUIRED` and, when you confirm, `accept` moves the old files to `history/<timestamp>-legacy/` and writes a new baseline. The new baseline records the servers as they are today: if one had already changed, the change is now part of the baseline, so re-evaluate HIGH and CRITICAL servers first.
 
-**Do not commit `mcp-approved.json` for others to inherit.** It is your approval, on your machine. A repository that ships both a `.mcp.json` and an approval record is asking you to run its server: the trust-dialog check above exists for that case.
+**`mcp-approved.json` is not shared by committing it.** It is your approval, on your machine. A repository that ships both a `.mcp.json` and an approval record is asking you to run its server: such a record is skipped as `approval_not_local`, and a `.mcp.json` server also needs the folder to have passed the trust dialog.
 
 ## A.7 - Add Cerbero Reference to CLAUDE.md
 

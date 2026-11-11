@@ -155,7 +155,7 @@ Classify per the Risk Classification table in SKILL.md. Record the risk level an
 
 ## Step 6 - Verdict
 
-**Pinned version required:** APPROVED needs an install command with an exact version: `npx -y <pkg>@<version>`, `uvx <pkg>==<version>`, or a Docker image by digest (`image@sha256:...`). A bare `npx -y <pkg>`, `@latest`, a version range or an image tag runs whatever is newest on each start, which is the most common rug-pull path. If no exact version can be pinned, the verdict is REQUIRES HUMAN REVIEW with the reason `version not pinned`.
+**Pinned version required:** APPROVED needs an install command with an exact version from the public registry: `npx -y <pkg>@<x.y.z>`, `uvx <pkg>==<version>`, or a Docker image by digest (`image@sha256:...`). A bare `npx -y <pkg>`, `@latest`, a version range (`@1.2` is a range for npm), an image tag, a URL or git reference, `uv run`, or `--with` an unpinned package runs whatever is newest on each start, which is the most common rug-pull path. If no exact version can be pinned, the verdict is REQUIRES HUMAN REVIEW with the reason `version not pinned`. A launcher the snapshot script cannot classify (a binary on PATH, `python -m ...`, a custom registry or index) is also REQUIRES HUMAN REVIEW, reason `launcher not verifiable`: only the user can accept it (Step 8.2).
 
 **Pre-verdict check:** before the verdict, list steps 1-7 with their status (COMPLETED or SKIPPED) and the reason for each SKIPPED one. A step skipped with no reason blocks the verdict: an APPROVED that rests on a step nobody ran is the failure this operation exists to prevent.
 
@@ -238,7 +238,8 @@ REASON: <one line>
    ```powershell
    python <snapshot> approve <name> --risk <MEDIUM|HIGH|CRITICAL> --integrity "<npm dist.integrity or shasum from the report>"
    ```
-   The command refuses an unpinned launcher. Without `--integrity` it asks the public registry for the integrity of the pinned version (package name and version only; `--offline` skips that).
+   The command refuses an unpinned launcher. It also refuses a launcher it cannot verify, with `UNVERIFIED_LAUNCHER`: add `--allow-unverified` only when the user has said, in this conversation, that they checked that launcher and accept it. Without `--integrity` it asks the public registry for the integrity of the pinned version (a registry-style package name and its version only; `--offline` skips that).
+   The record is bound to this machine (its hash is also stored under the user's home) and to the server's command, arguments, URL and environment block as configured now. Any later edit of those, including an `env` entry, needs a new evaluation and a new `approve`; a secret that has to rotate belongs in the environment, referenced as `${VAR}` in the `env` block. Never edit `mcp-approved.json` by hand.
 3. If CRITICAL: `approve` sets `sandbox_required: true` in the record (it means whole-process isolation; key name kept for compatibility), and the report (Step 7) carries the same field. Repeat it in the `[security]` log entry of step 6: the full audit (op-full-audit Step 4.6) reads the approval record first and the log entry as a fallback.
 4. Add the server to the baseline. `snapshot` starts the server just installed, reads its tool definitions, and `accept` merges that one server into the existing baseline (the previous baseline files move to `.claude/security/history/`):
    ```powershell
@@ -246,7 +247,7 @@ REASON: <one line>
    Get-Content -Raw "$env:TEMP/mcp-new-server.json" | python <scanner> --stdin
    python <snapshot> accept --current "$env:TEMP/mcp-new-server.json"
    ```
-   If the snapshot lists the server under `not_checked`, say so with the reason: the server is approved but has no tool-definition baseline (for example `oauth`, or `isolation` for a `sandbox_required` server when this session is not inside that isolation). If the scanner verdict on the snapshot is `REJECT`, do not run `accept`: the server serves something the source review did not show. Stop and report.
+   If the snapshot lists the server under `not_checked`, say so with the reason: the server is approved but has no tool-definition baseline (for example `oauth`, or `isolation` for a `sandbox_required` server when this session is not inside that isolation). If the scanner verdict on the snapshot is `REJECT`, do not run `accept` (it would refuse with `REFUSED` anyway): the server serves something the source review did not show. Stop and report.
    **Notify user:** `Cerbero: baseline updated after installing <name>@<version>. Date: <new date>.`
 5. Add to `enabledMcpjsonServers` (requires human confirmation).
 6. Log evaluation result with tag `[security]` in the project's designated log file.

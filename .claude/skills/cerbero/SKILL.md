@@ -39,7 +39,7 @@ hooks/
 Runtime artifacts (generated, live in project's `.claude/security/`; `mcp-audit.py` always uses the project root, even after `cd` or with a user-level install, unless `$CERBERO_LOG_DIR` is set):
 ```
 .claude/security/
-  mcp-approved.json        <-- approval records, one per approved server: launcher, version, integrity, risk, sandbox_required (written by op-evaluate-mcp Step 8.2). Only servers listed here are started by the snapshot
+  mcp-approved.json        <-- approval records, one per approved server: launcher, version, integrity, risk, sandbox_required (written by `approve` in op-evaluate-mcp Step 8.2; never edited by hand). Only servers listed here are started by the snapshot, and only if `approve` also registered the record's hash in `~/.claude/security/cerbero-approvals.json`
   mcp-inventory.json       <-- baseline: normalized tool definitions and instructions per approved server (format cerbero-mcp-snapshot/1)
   mcp-baseline.sha256      <-- baseline: inventory hash, for a quick equality check (the per-tool comparison is the source of truth)
   baseline-date.txt        <-- baseline: last update timestamp
@@ -110,7 +110,7 @@ Cerbero uses a tiered detection system. All tiers run locally - no external APIs
 
 If neither exists, the scanner step is `NOT RUN (scanner not installed)`: say so in the report and do not open the content it was meant to screen.
 
-**Snapshot script path.** Operation files write `cerbero-mcp-snapshot.py` as `<snapshot>`. It sits next to the scanner: resolve it the same way (`.claude/hooks/cerbero-mcp-snapshot.py`, then `~/.claude/hooks/cerbero/cerbero-mcp-snapshot.py`). Run it from the project root, or pass `--project <root>`. It is a script you run, never a hook: `snapshot` starts the approved MCP servers outside Claude Code, so run it only inside an operation, never on your own initiative and never for a server without an approval record. If it is missing, the rug pull check is `NOT RUN (snapshot script not installed)`.
+**Snapshot script path.** Operation files write `cerbero-mcp-snapshot.py` as `<snapshot>`. It sits next to the scanner: resolve it the same way (`.claude/hooks/cerbero-mcp-snapshot.py`, then `~/.claude/hooks/cerbero/cerbero-mcp-snapshot.py`). Run it from the project root, or pass `--project <root>`. It is a script you run, never a hook: `snapshot` starts the approved MCP servers outside Claude Code, so run it only inside an operation, never on your own initiative and never for a server without an approval record. `approve`, `--allow-unverified`, `--allow-unpinned`, `--trust-project`, `--inside-isolation` and `--accept-rejected` each record or override a decision that belongs to the user: use them only when an operation step says so and the user has decided. If it is missing, the rug pull check is `NOT RUN (snapshot script not installed)`.
 
 External scanners are **recommended complements**, not requirements. Tiered recommendation:
 - **Casual (1-3 MCPs, known publishers):** Cerbero local tiers (T0-T3) are sufficient.
