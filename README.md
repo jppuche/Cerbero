@@ -232,7 +232,7 @@ Adding a publisher requires meeting three criteria: direct relevance to Claude C
 |---------|-------------|
 | `/cerbero evaluate-mcp <package>` | Before installing any MCP server |
 | `/cerbero evaluate-skill <path>` | Before installing any Skill file |
-| `/cerbero verify` | Routine check for rug pulls (recommended: start of each session) |
+| `/cerbero verify` | Routine check for added, removed or reconfigured MCP servers (recommended: start of each session). It does not yet catch a tool description that changes behind an unchanged configuration |
 | `/cerbero audit` | Monthly full security audit |
 
 Each operation produces a structured report presented to you before any action is taken.
