@@ -12,10 +12,18 @@ Modes:
   require-auth  401 with a WWW-Authenticate header pointing at OAuth metadata
   only-version  modern, but rejects every protocol version except
                 ONLY_VERSION with 400 and an UnsupportedProtocolVersionError
+  sse-pings     answers with an event stream of comments only, never a result
+  drip-bytes    answers one byte at a time, never a full line
 """
 import json
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True      # a handler stuck in a slow response must not block stop()
+    block_on_close = False
 
 MODERN = "2026-07-28"
 LEGACY = "2025-11-25"
@@ -62,6 +70,20 @@ class _Handler(BaseHTTPRequestHandler):
         meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
         mode = srv.mode
 
+        if mode in ("sse-pings", "drip-bytes"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream" if mode == "sse-pings" else "application/json")
+            self.end_headers()
+            piece = b": ping\n\n" if mode == "sse-pings" else b" "
+            end = time.time() + 25
+            try:
+                while time.time() < end:
+                    self.wfile.write(piece)
+                    self.wfile.flush()
+                    time.sleep(0.2)
+            except OSError:
+                pass                   # the client gave up, as it should
+            return
         if mode == "require-auth":
             return self._send(401, headers={
                 "WWW-Authenticate": 'Bearer resource_metadata="http://127.0.0.1/.well-known/oauth-protected-resource"'})
@@ -111,7 +133,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def start(tools, mode="modern", instructions="Fixture HTTP server.", required_header=None):
-    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    server = _Server(("127.0.0.1", 0), _Handler)
     server.tools = tools
     server.mode = mode
     server.instructions = instructions

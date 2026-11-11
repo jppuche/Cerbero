@@ -116,9 +116,14 @@ class Sandbox(object):
         with open(os.path.join(self.project, ".mcp.json"), "w", encoding="utf-8") as f:
             json.dump({"mcpServers": servers}, f)
 
-    def write_approved(self, records):
+    def write_approved(self, records, anchor=True):
+        """Write approval records by hand. anchor=True also registers them in the
+        fake home, as `approve` does, so a test can reach the gates behind that one."""
         with open(os.path.join(self.security, "mcp-approved.json"), "w", encoding="utf-8") as f:
             json.dump(records, f)
+        if anchor:
+            for name, record in records.items():
+                snap.write_anchor(self.home, self.project, name, record)
 
     def env(self, extra=None):
         env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
@@ -129,7 +134,7 @@ class Sandbox(object):
 
     def run(self, *args, **kw):
         cmd = [sys.executable, SCRIPT] + list(args)
-        p = subprocess.run(cmd, capture_output=True, env=self.env(kw.get("env")), timeout=120)
+        p = subprocess.run(cmd, capture_output=True, env=self.env(kw.get("env")), cwd=kw.get("cwd"), timeout=120)
         out = p.stdout.decode("utf-8", errors="replace")
         try:
             data = json.loads(out)
@@ -137,8 +142,9 @@ class Sandbox(object):
             data = None
         return p.returncode, data, out + p.stderr.decode("utf-8", errors="replace")
 
-    def approve(self, name, *extra):
-        code, data, text = self.run("approve", name, "--risk", "MEDIUM", "--offline", "--project", self.project, *extra)
+    def approve(self, name, *extra, **kw):
+        code, data, text = self.run("approve", name, "--risk", "MEDIUM", "--offline", "--project", self.project,
+                                    *extra, **kw)
         self.case.assertEqual(code, 0, text)
         return data
 
@@ -350,6 +356,9 @@ class TestMutations(Base):
         _, _, text1 = self.sb.snapshot("baseline.json")
         self.sb.local = {"wiki": self.sb.stdio_entry(env={"WIKI_TOKEN": secret + "-rotated"})}
         self.sb.write_home()
+        doc, _, _ = self.sb.snapshot("current.json")
+        self.assertEqual(doc["servers"]["wiki"]["reason"], "launch_changed")   # a literal env edit is gated
+        self.sb.approve("wiki")
         _, _, text2 = self.sb.snapshot("current.json")
         code, summary, full = self.sb.compare("baseline.json", "current.json")
         self.assertEqual(code, 1)
@@ -446,7 +455,9 @@ class TestSafetyGates(Base):
         # Never run with --allow-unpinned here: that would start a real package.
         self.sb.local = {"pkg": {"command": "npx", "args": ["-y", "cerbero-fixture-does-not-exist"]}}
         self.sb.write_home()
-        self.sb.write_approved({"pkg": {"risk": "MEDIUM", "sandbox_required": False}})
+        entry = self.sb.local["pkg"]
+        self.sb.write_approved({"pkg": snap.build_record(entry, "local", snap.classify_launcher(entry, self.sb.project),
+                                                         "MEDIUM", False, None, None, False)})
         doc, summary, _ = self.sb.snapshot()
         s = doc["servers"]["pkg"]
         self.assertEqual((s["status"], s["reason"]), ("skipped", "unpinned"))
@@ -493,7 +504,7 @@ class TestSafetyGates(Base):
 
     def test_approved_but_not_in_config(self):
         self.sb.write_home()
-        self.sb.write_approved({"plugin:docs:search": {"risk": "MEDIUM"}})
+        self.sb.write_approved({"plugin:docs:search": {"risk": "MEDIUM"}}, anchor=False)
         doc, _, _ = self.sb.snapshot()
         s = doc["servers"]["plugin:docs:search"]
         self.assertEqual((s["status"], s["reason"]), ("skipped", "not_covered_source"))
@@ -569,8 +580,14 @@ class TestRobustness(Base):
         self.assertGreater(noisy["stdout_noise_lines"], 0)
 
     def test_missing_command(self):
-        s = self.sb.one({"command": self.sb.path("no-such-server-binary"), "args": []})
-        self.assertEqual((s["status"], s["reason"]), ("error", "spawn_failed"))
+        for command in (self.sb.path("no-such-server-binary"), "cerbero-no-such-command-on-path"):
+            with self.subTest(command=command):
+                self.sb.local = {"wiki": {"command": command, "args": []}}
+                self.sb.write_home()
+                self.sb.approve("wiki", "--allow-unverified")
+                doc, _, _ = self.sb.snapshot()
+                s = doc["servers"]["wiki"]
+                self.assertEqual((s["status"], s["reason"]), ("error", "spawn_failed"))
 
     def test_output_file_is_ascii(self):
         tools = _base_tools()
@@ -868,9 +885,10 @@ class TestPins(Base):
         ({"command": "docker", "args": ["run", "-i", "image"]}, "docker", "image", False),
         ({"command": "docker", "args": ["run", "-i", "--rm", "ghcr.io/o/image@sha256:" + "a" * 64]},
          "docker", "ghcr.io/o/image@sha256:" + "a" * 64, True),
-        ({"type": "http", "url": "https://mcp.example.com/mcp?token=abc"}, "url", "https://mcp.example.com/mcp", None),
-        ({"command": "some-binary-on-path", "args": ["serve"]}, "other", "some-binary-on-path serve", None),
-        ({"command": "python", "args": ["-m", "some_module"]}, "other", "python -m", None),
+        ({"type": "http", "url": "https://mcp.example.com/mcp?token=abc"}, "url", "https://mcp.example.com", None),
+        ({"type": "http", "url": "http://127.0.0.1:8080/a/b"}, "url", "http://127.0.0.1:8080", None),
+        ({"command": "some-binary-on-path", "args": ["serve"]}, "other", "some-binary-on-path", None),
+        ({"command": "python", "args": ["-m", "some_module"]}, "other", "python", None),
     ]
 
     def test_classification(self):
@@ -900,10 +918,13 @@ class TestPins(Base):
             "wiki": self.sb.stdio_entry(),
         }
         self.sb.write_home()
-        self.sb.write_approved({
-            "pinned": {"launcher_spec": "some-pkg@1.2.3", "integrity": "sha512-approved"},
-            "py": {"launcher_spec": "pkg==0.9.0"},
-        })
+        records = {}
+        for name, changes in (("pinned", {"integrity": "sha512-approved"}), ("py", {"launcher_spec": "pkg==0.9.0"})):
+            entry = self.sb.local[name]
+            records[name] = snap.build_record(entry, "local", snap.classify_launcher(entry, self.sb.project),
+                                              "MEDIUM", False, None, None, False)
+            records[name].update(changes)
+        self.sb.write_approved(records)
 
     def test_offline_makes_no_network_call(self):
         self._configure()
@@ -960,6 +981,10 @@ class TestPins(Base):
         self.sb.snapshot("current.json")
         code, summary, _ = self.sb.compare("baseline.json", "current.json")
         self.assertEqual(code, 1)
+        self.assertEqual(summary["servers"]["wiki"]["newly_skipped"]["reason"], "integrity_mismatch")
+        self.sb.approve("wiki")           # after a re-evaluation
+        self.sb.snapshot("current.json")
+        code, summary, _ = self.sb.compare("baseline.json", "current.json")
         self.assertIn("LAUNCHER_CHANGED", summary["servers"]["wiki"]["flags"])
 
 

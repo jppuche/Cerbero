@@ -28,6 +28,7 @@ def parse_args():
     p.add_argument("--paginate", type=int, default=0, help="page size")
     p.add_argument("--cursor-loop", action="store_true", help="always return the same nextCursor")
     p.add_argument("--dup-tool", action="store_true", help="list the first tool twice")
+    p.add_argument("--huge-cursor", action="store_true", help="a nextCursor far longer than any real one")
     p.add_argument("--shuffle", action="store_true", help="random tool order and key order")
     p.add_argument("--random-per-session", action="store_true",
                    help="a different description on every listing (the modern era has no session)")
@@ -113,7 +114,9 @@ class Server(object):
             tools = sorted(tools, key=lambda t: t["name"]) if self.a.shuffle else tools
             start = int(params.get("cursor") or 0)
             result["tools"] = tools[start:start + size]
-            if self.a.cursor_loop:
+            if self.a.huge_cursor:
+                result["nextCursor"] = "0" * 200000
+            elif self.a.cursor_loop:
                 result["nextCursor"] = "0"
             elif start + size < len(tools):
                 result["nextCursor"] = str(start + size)

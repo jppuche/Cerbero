@@ -18,11 +18,22 @@ Subcommands:
 
 Safety rules:
   - Only servers with a record in mcp-approved.json are ever launched or
-    contacted, and only while their command/args/url still match the record.
+    contacted, and only while command, args, url and env still match it.
+  - A record counts only if `approve` registered its hash under the user's
+    home (~/.claude/security/cerbero-approvals.json): an approval file that
+    came with a repository approves nothing.
+  - A record that lacks what a gate needs is invalid, never a pass.
   - Servers from a project .mcp.json need a trusted workspace (the same
-    hasTrustDialogAccepted flag Claude Code uses), or --trust-project.
-  - Unpinned package launchers are skipped without --allow-unpinned.
-  - Records with sandbox_required are skipped without --inside-isolation.
+    hasTrustDialogAccepted flag Claude Code uses), or --trust-project, and
+    are skipped when a disabledMcpjsonServers entry rejects them.
+  - Only a pinned launcher runs: an exact registry version, an image digest
+    or a local file whose hash still matches the record. Unpinned ones need
+    --allow-unpinned; launchers this script cannot verify need the user's
+    recorded decision (approve --allow-unverified).
+  - Records with sandbox_required, or risk CRITICAL, are skipped without
+    --inside-isolation.
+  - A bare command is looked up in the absolute entries of PATH only, never
+    in the current directory.
   - OAuth, headersHelper, SSE/WebSocket, plugin, connector and managed
     servers are not covered: reported as skipped, never as unchanged.
   - Environment and header values are never printed or stored (hashes only).
@@ -58,9 +69,9 @@ MODERN_ERROR_CODES = (-32020, -32021, -32022)
 UNSUPPORTED_VERSION_CODE = -32022
 RESPONSE_CAP = 5 * 1024 * 1024      # bytes read from one server, per run
 MAX_PAGES = 200
+MAX_CURSOR = 4096                   # characters of a nextCursor we are willing to send back
 SAFE_BATCH_ARG = re.compile(r"^[A-Za-z0-9@/._:=+-]+$")
 VAR_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
-EXACT_VERSION = re.compile(r"^\d+(\.\d+){1,3}([.+-][0-9A-Za-z.+-]+)?$")
 DOCKER_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
 INTERPRETERS = re.compile(r"^(python[0-9.]*|py|pythonw|node|nodejs|deno|bun|ruby|java|dotnet|bash|sh|pwsh|powershell)$")
 
@@ -252,14 +263,50 @@ def config_fingerprint(entry):
     return sha(e)
 
 
-def launch_fingerprint(entry):
-    """Hash of what decides which code runs or which endpoint is contacted."""
-    return sha({k: entry.get(k) for k in ("type", "command", "args", "url")})
+def launch_fingerprint(entry, env=None):
+    """Hash of what decides which code runs or which endpoint is contacted:
+    command, args and url as written, the same three after ${VAR} expansion,
+    and the entry's whole env block (names, and a hash of each value as
+    written). Any variable can change what a launcher runs (PATH, PYTHONPATH,
+    NODE_OPTIONS, LD_PRELOAD, a registry URL), so none is exempt. A secret
+    referenced as ${TOKEN} inside env can rotate without a new approval; a
+    literal one cannot. Only hashes are kept."""
+    env = os.environ if env is None else env
+    cfg_env = entry.get("env") if isinstance(entry.get("env"), dict) else {}
+    args = entry.get("args") if isinstance(entry.get("args"), list) else []
+    resolved = [expand(str(entry.get("command") or ""), env)] + [expand(str(a), env) for a in args]
+    resolved.append(expand(str(entry.get("url") or ""), env))
+    return sha({"v": 2,
+                "type": entry.get("type"), "command": entry.get("command"), "args": entry.get("args"),
+                "url": entry.get("url"),
+                "env": {str(k): sha_text(str(v)) for k, v in cfg_env.items()},
+                "resolved": sha(resolved)})
 
 
 # --------------------------------------------------------------------------
 # Launcher classification (layer C, static)
 # --------------------------------------------------------------------------
+
+NPM_NAME = re.compile(r"^(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*$", re.I)
+NPM_EXACT = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$")
+PYPI_NAME = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?(\[[A-Za-z0-9,._ -]*\])?$")
+PYPI_EXACT = re.compile(r"^\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?(\+[0-9A-Za-z.]+)?$")
+SECRET_FLAG = re.compile(r"(?i)^(--?[a-z0-9_.-]*(token|key|secret|passw|auth|credential|bearer|cookie|session)[a-z0-9_.-]*)=.*$")
+REGISTRY_FLAGS = ("--registry", "--index-url", "-i", "--index", "--default-index", "--extra-index-url",
+                  "--find-links", "-f")
+REGISTRY_ENV = ("NPM_CONFIG_REGISTRY", "NPM_CONFIG_USERCONFIG", "YARN_NPM_REGISTRY_SERVER", "COREPACK_NPM_REGISTRY",
+                "UV_INDEX", "UV_INDEX_URL", "UV_DEFAULT_INDEX", "UV_EXTRA_INDEX_URL", "UV_FIND_LINKS",
+                "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "PIP_FIND_LINKS", "PIP_CONFIG_FILE")
+NPX_VALUE_FLAGS = ("-p", "--package", "-c", "--call", "--registry", "--cache", "--userconfig", "--prefix", "-w",
+                   "--workspace")
+UVX_VALUE_FLAGS = ("--from", "--with", "--with-requirements", "--with-editable", "--python", "-p", "--spec",
+                   "--index-url", "-i", "--index", "--default-index", "--extra-index-url", "--find-links", "-f",
+                   "--constraint", "-c", "--overrides", "--cache-dir", "--directory", "--project")
+DOCKER_VALUE_FLAGS = ("-e", "--env", "-v", "--volume", "--name", "-p", "--publish", "--network", "--net",
+                      "--mount", "-w", "--workdir", "-u", "--user", "--entrypoint", "--env-file", "-l",
+                      "--label", "--platform", "-h", "--hostname", "--add-host", "--cap-add", "--cap-drop",
+                      "--memory", "-m", "--cpus", "--pull", "--security-opt", "--tmpfs", "--device", "--gpus")
+
 
 def _base(cmd):
     b = os.path.basename(str(cmd).replace("\\", "/")).lower()
@@ -286,14 +333,15 @@ def _first_positional(args, value_flags):
     return None
 
 
-def _flag_value(args, names):
+def _flag_values(args, names):
+    out = []
     for i, a in enumerate(args):
         for n in names:
             if a == n and i + 1 < len(args):
-                return args[i + 1]
-            if a.startswith(n + "="):
-                return a[len(n) + 1:]
-    return None
+                out.append(args[i + 1])
+            elif a.startswith(n + "="):
+                out.append(a[len(n) + 1:])
+    return out
 
 
 def _split_npm(spec):
@@ -303,21 +351,94 @@ def _split_npm(spec):
     return spec, None
 
 
+def _split_pypi(spec):
+    if "==" in spec:
+        name, ver = spec.split("==", 1)
+        return name, ver
+    if "@" in spec[1:]:
+        name, ver = spec.rsplit("@", 1)
+        return name, ver
+    return spec, None
+
+
+def _origin(url):
+    """scheme://host[:port] of a URL: no user, no path, no query."""
+    try:
+        p = urllib.parse.urlsplit(url)
+        host = p.hostname or ""
+        if p.port:
+            host = "%s:%d" % (host, p.port)
+        return urllib.parse.urlunsplit((p.scheme, host, "", "", ""))
+    except ValueError:
+        return ""
+
+
+def redact(text):
+    """A launcher string that is safe to store and print: anything URL-shaped
+    is cut to its origin, and the value of a secret-looking flag is dropped."""
+    t = str(text)
+    if "://" in t:
+        prefix, _, rest = t.partition("://")
+        scheme = prefix.rsplit("+", 1)[-1]
+        return (prefix[:len(prefix) - len(scheme)] + _origin(scheme + "://" + rest)) or "<redacted>"
+    m = SECRET_FLAG.match(t)
+    if m:
+        return m.group(1) + "=***"
+    return t
+
+
+def _npm_pinned(spec):
+    name, ver = _split_npm(spec)
+    return bool(NPM_NAME.match(name) and ver and NPM_EXACT.match(ver))
+
+
+def _pypi_pinned(spec):
+    name, ver = _split_pypi(spec)
+    return bool(PYPI_NAME.match(name) and ver and PYPI_EXACT.match(ver))
+
+
+def _custom_registry(entry, args):
+    """True if a flag or an env name points the launcher at another registry."""
+    for a in args:
+        if a in REGISTRY_FLAGS or a.split("=", 1)[0] in REGISTRY_FLAGS:
+            return True
+    env = entry.get("env") if isinstance(entry.get("env"), dict) else {}
+    return any(str(k).upper() in REGISTRY_ENV for k in env)
+
+
+def _package_launcher(kind, specs, pinned_fn, entry, args):
+    """Result for an npm-style or PyPI-style launcher. Only a registry-style
+    name with an exact version is pinned; anything else (a range, a tag, a
+    URL, a git reference, a local path) is not, and is stored redacted."""
+    specs = [s for s in specs if s]
+    if not specs:
+        return {"kind": kind, "spec": "", "pinned": False}
+    pinned = all(pinned_fn(s) for s in specs)
+    out = {"kind": kind, "spec": " ".join(redact(s) for s in specs), "pinned": pinned}
+    if pinned and len(specs) == 1:
+        splitter = _split_npm if kind == "npx" else _split_pypi
+        out["version"] = splitter(specs[0])[1]
+    if pinned and _custom_registry(entry, args):
+        # The version is exact, but it is resolved somewhere this script cannot check.
+        out["pinned"] = None
+        out["note"] = "custom registry or index"
+    return out
+
+
 def classify_launcher(entry, project, env=None):
-    """{"kind", "spec", "pinned", ["version"], ["integrity"]}.
-    pinned is True, False (a package launcher without an exact version) or
-    None (nothing to pin, or a launcher this script does not understand)."""
+    """{"kind", "spec", "pinned", ["version"], ["integrity"], ["note"]}.
+
+    pinned is True (an exact registry version, an image digest, or a local
+    file whose hash is recorded), False (a package launcher that resolves
+    something at start: no exact version, a range, a URL, extra unpinned
+    packages) or None (not verifiable here: a remote URL, a custom registry,
+    a launcher this script does not understand). Only True passes the gates
+    on its own; None needs the user's recorded decision.
+    spec never contains a URL path, URL credentials, a query string or an
+    argument: see redact()."""
     env = os.environ if env is None else env
     if transport_of(entry) != "stdio":
-        url = str(entry.get("url") or "")
-        try:
-            p = urllib.parse.urlsplit(url)
-            spec = urllib.parse.urlunsplit((p.scheme, p.hostname or "", p.path, "", ""))
-            if p.port:
-                spec = urllib.parse.urlunsplit((p.scheme, "%s:%d" % (p.hostname or "", p.port), p.path, "", ""))
-        except ValueError:
-            spec = ""
-        return {"kind": "url", "spec": spec, "pinned": None}
+        return {"kind": "url", "spec": _origin(str(entry.get("url") or "")), "pinned": None}
 
     command = str(entry.get("command") or "")
     args = [str(a) for a in (entry.get("args") or []) if isinstance(a, (str, int, float))]
@@ -326,54 +447,46 @@ def classify_launcher(entry, project, env=None):
         base, args = _base(args[1]), args[2:]
     elif base in ("env", "winpty") and args:
         base, args = _base(args[0]), args[1:]
+    if base in ("node", "nodejs") and args and _base(args[0]) in ("npx-cli.js", "npx-cli.cjs", "npx-cli.mjs", "npx"):
+        base, args = "npx", args[1:]
 
-    if base in ("npx", "bunx", "pnpx") or (base in ("npm", "pnpm") and args[:1] in (["exec"], ["x"], ["dlx"])):
-        if base in ("npm", "pnpm"):
+    npm_sub = {"npm": ("exec", "x"), "pnpm": ("exec", "dlx"), "yarn": ("dlx",), "bun": ("x",)}
+    if base in ("npx", "bunx", "pnpx") or (base in npm_sub and args[:1] and args[0] in npm_sub[base]):
+        if base in npm_sub:
             args = args[1:]
-        spec = _flag_value(args, ("-p", "--package")) or _first_positional(args, ("-p", "--package", "-c", "--call"))
-        if not spec:
-            return {"kind": "npx", "spec": "", "pinned": False}
-        _, ver = _split_npm(spec)
-        pinned = bool(ver and EXACT_VERSION.match(ver))
-        out = {"kind": "npx", "spec": spec, "pinned": pinned}
-        if pinned:
-            out["version"] = ver
-        return out
+        specs = _flag_values(args, ("-p", "--package")) or [_first_positional(args, NPX_VALUE_FLAGS)]
+        return _package_launcher("npx", specs, _npm_pinned, entry, args)
 
+    if base == "uv" and args[:1] == ["run"]:
+        # `uv run` resolves an environment at start, whatever follows.
+        return {"kind": "uvx", "spec": redact(_first_positional(args[1:], UVX_VALUE_FLAGS) or ""), "pinned": False}
     if base in ("uvx", "pipx") or (base == "uv" and args[:2] == ["tool", "run"]):
         if base == "uv":
             args = args[2:]
         if base == "pipx" and args[:1] == ["run"]:
             args = args[1:]
-        vflags = ("--from", "--with", "--python", "-p", "--spec", "--index-url", "--index", "--extra-index-url")
-        spec = _flag_value(args, ("--from", "--spec")) or _first_positional(args, vflags)
-        if not spec:
-            return {"kind": "uvx", "spec": "", "pinned": False}
-        ver = None
-        if "==" in spec:
-            ver = spec.split("==", 1)[1]
-        elif "@" in spec[1:]:
-            ver = spec.rsplit("@", 1)[1]
-        pinned = bool(ver and EXACT_VERSION.match(ver))
-        out = {"kind": "uvx", "spec": spec, "pinned": pinned}
-        if pinned:
-            out["version"] = ver
+        main = (_flag_values(args, ("--from", "--spec")) or [_first_positional(args, UVX_VALUE_FLAGS)])[:1]
+        extra = [s for v in _flag_values(args, ("--with",)) for s in v.split(",")]
+        out = _package_launcher("uvx", main + extra, _pypi_pinned, entry, args)
+        if out["pinned"] is not False and any(a.split("=", 1)[0] in ("--with-requirements", "--with-editable")
+                                              for a in args):
+            out["pinned"] = False
         return out
 
+    if base == "deno" and args[:1] == ["run"]:
+        target = _first_positional(args[1:], ()) or ""
+        if "://" in target or target.split(":", 1)[0] in ("npm", "jsr"):
+            return {"kind": "deno", "spec": redact(target), "pinned": False}
+
     if base in ("docker", "podman") and "run" in args:
-        rest = args[args.index("run") + 1:]
-        vflags = ("-e", "--env", "-v", "--volume", "--name", "-p", "--publish", "--network", "--net",
-                  "--mount", "-w", "--workdir", "-u", "--user", "--entrypoint", "--env-file", "-l",
-                  "--label", "--platform", "-h", "--hostname", "--add-host", "--cap-add", "--cap-drop",
-                  "--memory", "-m", "--cpus", "--pull", "--security-opt", "--tmpfs", "--device", "--gpus")
-        image = _first_positional(rest, vflags) or ""
-        return {"kind": "docker", "spec": image, "pinned": bool(DOCKER_DIGEST.search(image))}
+        image = _first_positional(args[args.index("run") + 1:], DOCKER_VALUE_FLAGS) or ""
+        return {"kind": "docker", "spec": redact(image), "pinned": bool(DOCKER_DIGEST.search(image))}
 
     # Local file: the command itself, or the script an interpreter runs.
     candidates = []
     if INTERPRETERS.match(base):
         if "-m" not in args and "-c" not in args and "-e" not in args:
-            candidates = [a for a in args if not a.startswith("-")][:1]
+            candidates = [a for a in args if not a.startswith("-") and a != "run"][:1]
     elif "/" in command or "\\" in command:
         candidates = [command]
     for cand in candidates:
@@ -382,10 +495,10 @@ def classify_launcher(entry, project, env=None):
             path = os.path.join(project, path)
         if os.path.isfile(path):
             try:
-                return {"kind": "path", "spec": cand, "pinned": True, "integrity": sha_file(path)}
+                return {"kind": "path", "spec": redact(cand), "pinned": True, "integrity": sha_file(path)}
             except OSError:
                 break
-    return {"kind": "other", "spec": " ".join([command] + args[:1]).strip(), "pinned": None}
+    return {"kind": "other", "spec": redact(command), "pinned": None}
 
 
 def _registry_json(url):
@@ -397,17 +510,21 @@ def _registry_json(url):
 
 def registry_integrity(launcher):
     """Integrity the public registry reports for a pinned npm or PyPI spec.
-    Sends the package name and version only. Returns (value, error)."""
+    Sends a registry-style package name and an exact version, nothing else:
+    a spec that is a URL, a git reference or a path is never sent anywhere.
+    Returns (value, error)."""
     kind, spec = launcher.get("kind"), launcher.get("spec") or ""
+    if launcher.get("pinned") is not True:
+        return None, None
     try:
-        if kind == "npx" and launcher.get("pinned"):
+        if kind == "npx" and _npm_pinned(spec):
             name, ver = _split_npm(spec)
             doc = _registry_json("https://registry.npmjs.org/%s/%s" % (
                 urllib.parse.quote(name, safe="@"), urllib.parse.quote(ver, safe="")))
             return (doc.get("dist") or {}).get("integrity"), None
-        if kind == "uvx" and launcher.get("pinned"):
-            name = re.split(r"==|@|\[", spec, 1)[0]
-            ver = launcher.get("version") or ""
+        if kind == "uvx" and _pypi_pinned(spec):
+            name, ver = _split_pypi(spec)
+            name = name.split("[", 1)[0]
             doc = _registry_json("https://pypi.org/pypi/%s/%s/json" % (
                 urllib.parse.quote(name, safe=""), urllib.parse.quote(ver, safe="")))
             files = sorted([u.get("filename"), (u.get("digests") or {}).get("sha256")]
@@ -416,6 +533,94 @@ def registry_integrity(launcher):
     except Exception as e:  # network, HTTP or parse error: report, never raise
         return None, type(e).__name__
     return None, None
+
+
+# --------------------------------------------------------------------------
+# Approval records
+# --------------------------------------------------------------------------
+
+RISKS = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+
+
+def build_record(entry, scope, launcher, risk, sandbox_required, version, integrity, unverified):
+    risk = str(risk).upper()
+    record = {
+        "launcher_kind": launcher["kind"],
+        "launcher_spec": launcher["spec"],
+        "version": version or launcher.get("version"),
+        "integrity": integrity or launcher.get("integrity"),
+        "risk": risk,
+        "sandbox_required": bool(sandbox_required or risk == "CRITICAL"),
+        "approved_at": now_iso(),
+        "scope": scope,
+        "config_fingerprint": config_fingerprint(entry),
+        "launch_fingerprint": launch_fingerprint(entry),
+    }
+    if unverified:
+        record["unverified_launcher"] = True
+    return record
+
+
+def record_problem(rec):
+    """Why a record cannot be used, or None. A record that lacks what a gate
+    needs is invalid: a missing field never means "skip that gate"."""
+    fp = rec.get("launch_fingerprint")
+    if not (isinstance(fp, str) and re.match(r"^sha256:[0-9a-f]{64}$", fp)):
+        return "no launch_fingerprint"
+    if str(rec.get("risk")).upper() not in RISKS:
+        return "no valid risk"
+    return None
+
+
+def needs_isolation(rec):
+    return bool(rec.get("sandbox_required")) or str(rec.get("risk")).upper() == "CRITICAL"
+
+
+def anchors_path(home):
+    return os.path.join(home, ".claude", "security", "cerbero-approvals.json")
+
+
+def _read_anchors(home):
+    try:
+        data = read_json(anchors_path(home))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_anchor(home, project, name, record):
+    """Register the record's hash outside the project. mcp-approved.json sits
+    in the project folder, where a cloned repository can put its own: a
+    record counts only if its hash is also here, under the user's home."""
+    data = _read_anchors(home)
+    block = data.setdefault(_norm_path(os.path.abspath(project)), {})
+    if not isinstance(block, dict):
+        block = data[_norm_path(os.path.abspath(project))] = {}
+    block[name] = sha(record)
+    write_json_atomic(anchors_path(home), data)
+
+
+def anchored(home, project, name, record):
+    block = _read_anchors(home).get(_norm_path(os.path.abspath(project)))
+    return isinstance(block, dict) and block.get(name) == sha(record)
+
+
+def project_disabled(ctx, name):
+    """True if a disabledMcpjsonServers entry rejects this .mcp.json server.
+    Claude Code honours that list from any settings file."""
+    lists = []
+    for path in (os.path.join(ctx.home, ".claude", "settings.json"),
+                 os.path.join(ctx.project, ".claude", "settings.json"),
+                 os.path.join(ctx.project, ".claude", "settings.local.json")):
+        try:
+            doc = read_json(path)
+        except (OSError, ValueError):
+            continue
+        if isinstance(doc, dict):
+            lists.append(doc.get("disabledMcpjsonServers"))
+    for entry in _project_entries(ctx.home_cfg, ctx.project):
+        lists.append(entry.get("disabledMcpjsonServers"))
+    return any(isinstance(lst, list) and name in lst for lst in lists)
 
 
 # --------------------------------------------------------------------------
@@ -453,6 +658,10 @@ class Context(object):
 # pins / approve
 # --------------------------------------------------------------------------
 
+def _unverified(launcher):
+    return launcher["pinned"] is None and launcher["kind"] != "url"
+
+
 def cmd_pins(args):
     ctx = Context(args)
     report = {"generated_at": now_iso(), "offline": bool(args.offline), "servers": {}, "problems": ctx.problems}
@@ -474,15 +683,24 @@ def cmd_pins(args):
             findings.append("UNPINNED")
         if rec is None:
             findings.append("NOT_APPROVED")
+            if _unverified(launcher):
+                findings.append("UNVERIFIED_LAUNCHER")
         else:
+            if not anchored(ctx.home, ctx.project, name, rec):
+                findings.append("APPROVAL_NOT_LOCAL")
+            if record_problem(rec):
+                findings.append("INVALID_RECORD")
+                row["record_problem"] = record_problem(rec)
+            elif rec.get("launch_fingerprint") != launch_fingerprint(entry):
+                findings.append("LAUNCH_CHANGED")
+            if _unverified(launcher) and not rec.get("unverified_launcher"):
+                findings.append("UNVERIFIED_LAUNCHER")
             if rec.get("launcher_spec") not in (None, launcher["spec"]):
                 findings.append("VERSION_DRIFT")
-                row["approved_spec"] = rec.get("launcher_spec")
-            if rec.get("launch_fingerprint") not in (None, launch_fingerprint(entry)):
-                findings.append("LAUNCH_CHANGED")
-            if launcher.get("integrity") and rec.get("integrity") not in (None, launcher["integrity"]):
+                row["approved_spec"] = redact(rec.get("launcher_spec"))
+            if launcher.get("integrity") and rec.get("integrity") != launcher["integrity"]:
                 findings.append("INTEGRITY_MISMATCH")
-            if not args.offline and launcher["kind"] in ("npx", "uvx") and launcher["pinned"]:
+            if not args.offline and launcher["kind"] in ("npx", "uvx") and launcher["pinned"] is True:
                 value, err = registry_integrity(launcher)
                 row["registry"] = {"integrity": value, "error": err}
                 if err or value is None:
@@ -506,31 +724,28 @@ def cmd_approve(args):
     launcher = classify_launcher(entry, ctx.project)
     if launcher["pinned"] is False:
         emit({"error": "UNPINNED", "server": args.name, "launcher": launcher,
-              "detail": "pin an exact version (npx pkg@1.2.3, uvx pkg==1.2.3, docker image@sha256:...) before approval"})
+              "detail": "pin an exact version (npx pkg@1.2.3, uvx pkg==1.2.3, docker image@sha256:...) before approval. "
+                        "Ranges, tags, URLs, git references and extra unpinned packages do not count"})
+        return EXIT_CHANGED
+    if _unverified(launcher) and not args.allow_unverified:
+        emit({"error": "UNVERIFIED_LAUNCHER", "server": args.name, "launcher": launcher,
+              "detail": "this script cannot tell what the launcher runs or whether it is pinned (%s). "
+                        "If the user has checked it and accepts that, approve again with --allow-unverified"
+                        % (launcher.get("note") or "unknown command")})
         return EXIT_CHANGED
     integrity = args.integrity or launcher.get("integrity")
     registry_note = None
-    if not integrity and not args.offline and launcher["kind"] in ("npx", "uvx"):
+    if not integrity and not args.offline and launcher["kind"] in ("npx", "uvx") and launcher["pinned"] is True:
         integrity, err = registry_integrity(launcher)
         if err:
             registry_note = "registry integrity not recorded (%s)" % err
-    risk = args.risk.upper()
-    record = {
-        "launcher_kind": launcher["kind"],
-        "launcher_spec": launcher["spec"],
-        "version": args.version or launcher.get("version"),
-        "integrity": integrity,
-        "risk": risk,
-        "sandbox_required": bool(args.sandbox_required or risk == "CRITICAL"),
-        "approved_at": now_iso(),
-        "scope": scope,
-        "config_fingerprint": config_fingerprint(entry),
-        "launch_fingerprint": launch_fingerprint(entry),
-    }
+    record = build_record(entry, scope, launcher, args.risk, args.sandbox_required, args.version, integrity,
+                          _unverified(launcher))
     approved = dict(ctx.approved)
     replaced = args.name in approved
     approved[args.name] = record
     write_json_atomic(ctx.approved_path, approved)
+    write_anchor(ctx.home, ctx.project, args.name, record)
     out = {"approved": args.name, "replaced": replaced, "record": record, "file": ctx.approved_path}
     if registry_note:
         out["note"] = registry_note
@@ -578,6 +793,7 @@ class StdioSession(object):
         self.deadline = deadline
         self.noise = 0
         self._next_id = 0
+        self._stuck = False
         self._q = queue.Queue()
         kwargs = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.DEVNULL,
                   "env": env, "cwd": cwd}
@@ -614,10 +830,27 @@ class StdioSession(object):
 
     def _write(self, obj):
         data = json.dumps(obj, separators=(",", ":"), ensure_ascii=True).encode("ascii") + b"\n"
-        try:
-            self.proc.stdin.write(data)
-            self.proc.stdin.flush()
-        except (OSError, ValueError):
+        remaining = self.deadline - time.time()
+        if remaining <= 0 or self._stuck:
+            raise SnapError("timeout")
+        failed = []
+
+        def work():
+            try:
+                self.proc.stdin.write(data)
+                self.proc.stdin.flush()
+            except Exception as e:
+                failed.append(e)
+
+        # A server that never reads its input would block this write for ever
+        # once the pipe is full, so the write runs under the same deadline.
+        t = threading.Thread(target=work, daemon=True)
+        t.start()
+        t.join(remaining)
+        if t.is_alive():
+            self._stuck = True
+            raise SnapError("timeout", "the server does not read its input")
+        if failed:
             raise SnapError("protocol_error", "server closed its input")
 
     def send(self, method, params):
@@ -668,14 +901,15 @@ class StdioSession(object):
                 return msg
 
     def close(self):
-        try:
-            self.proc.stdin.close()
-        except (OSError, ValueError):
-            pass
-        try:
-            self.proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            pass
+        if not self._stuck:          # a blocked writer holds the pipe's lock: closing would block too
+            try:
+                self.proc.stdin.close()
+            except (OSError, ValueError):
+                pass
+            try:
+                self.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
         _kill_tree(self.proc)
         try:
             self.proc.wait(timeout=5)
@@ -744,6 +978,8 @@ def list_tools(call):
             return tools
         if not isinstance(cursor, str) or cursor in seen:
             raise SnapError("protocol_error", "tools/list pagination loop")
+        if len(cursor) > MAX_CURSOR:
+            raise SnapError("protocol_error", "tools/list cursor longer than %d characters" % MAX_CURSOR)
         seen.add(cursor)
     raise SnapError("protocol_error", "tools/list exceeds %d pages" % MAX_PAGES)
 
@@ -850,14 +1086,29 @@ class HttpSession(object):
         self.session_id = None
         self._next_id = 0
         self._read = 0
+        self._resp = None
         self._opener = urllib.request.build_opener(_NoRedirect)
 
     def _limited(self, n):
         self._read += n
         if self._read > RESPONSE_CAP:
             raise SnapError("too_large", "more than %d bytes" % RESPONSE_CAP)
+        if time.time() > self.deadline:
+            raise SnapError("timeout")
+
+    def abort(self):
+        """Called from the watchdog when the budget is spent: unblock a read."""
+        try:
+            self._resp.fp.raw._sock.shutdown(2)
+        except Exception:
+            pass
+        try:
+            self._resp.close()
+        except Exception:
+            pass
 
     def _parse(self, resp, want_id):
+        self._resp = resp
         ctype = (resp.headers.get("Content-Type") or "").lower()
         if ctype.startswith("text/event-stream"):
             data = []
@@ -880,8 +1131,13 @@ class HttpSession(object):
                         return msg
                 if not raw:
                     return None
-        body = resp.read(RESPONSE_CAP + 1)
-        self._limited(len(body))
+        body = b""
+        while True:                               # in pieces, so the deadline is checked between reads
+            chunk = resp.read1(65536) if hasattr(resp, "read1") else resp.read(65536)
+            if not chunk:
+                break
+            self._limited(len(chunk))
+            body += chunk
         try:
             msg = json.loads(body.decode("utf-8", errors="replace"))
         except ValueError:
@@ -900,7 +1156,7 @@ class HttpSession(object):
             headers["Mcp-Session-Id"] = self.session_id
         req = urllib.request.Request(self.url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
         try:
-            with self._opener.open(req, timeout=max(1.0, remaining)) as resp:
+            with self._opener.open(req, timeout=max(1.0, min(remaining, 10.0))) as resp:
                 return resp.status, self._parse(resp, body.get("id")), resp.headers
         except urllib.error.HTTPError as e:
             try:
@@ -923,7 +1179,32 @@ class HttpSession(object):
 
 
 def fetch_http(url, headers, timeout):
+    """_fetch_http under one overall deadline. A socket timeout only bounds a
+    single read: a server that sends one byte, or one SSE ping, at a time
+    would otherwise keep a request open until the size cap."""
     sess = HttpSession(url, headers, time.time() + timeout)
+    box = {}
+
+    def work():
+        try:
+            box["ok"] = _fetch_http(sess, headers)
+        except SnapError as e:
+            box["error"] = e
+        except Exception as e:
+            box["error"] = SnapError("protocol_error", type(e).__name__)
+
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+    t.join(timeout + 1.0)
+    if t.is_alive():
+        sess.abort()
+        raise SnapError("timeout")
+    if "error" in box:
+        raise box["error"]
+    return box["ok"]
+
+
+def _fetch_http(sess, headers):
     has_auth = any(k.lower() == "authorization" for k in headers)
 
     def auth_check(status):
@@ -1001,14 +1282,42 @@ def fetch_http(url, headers, timeout):
 # snapshot
 # --------------------------------------------------------------------------
 
+def resolve_command(command, env):
+    """Absolute path of a bare command, searched in the absolute entries of
+    PATH only. The current directory is never searched (Windows and
+    shutil.which do search it first), and neither are empty or relative PATH
+    entries: the check runs from the project folder, and a file there named
+    like the launcher must not be what runs. A command written with a path is
+    returned as written."""
+    if "/" in command or "\\" in command:
+        return command
+    exts = [""]
+    if os.name == "nt":
+        pathext = [e for e in env.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(os.pathsep) if e]
+        if not any(command.lower().endswith(e.lower()) for e in pathext):
+            exts = pathext
+    for folder in env.get("PATH", "").split(os.pathsep):
+        folder = folder.strip('"')
+        if not folder or not os.path.isabs(folder):
+            continue
+        for ext in exts:
+            cand = os.path.join(folder, command + ext)
+            if os.path.isfile(cand) and (os.name == "nt" or os.access(cand, os.X_OK)):
+                return cand
+    return None
+
+
 def _stdio_argv(entry, env):
-    command = expand(str(entry.get("command") or ""), env)
-    args = [expand(str(a), env) for a in (entry.get("args") or [])]
-    if os.name != "nt":
-        return [command] + args
-    resolved = shutil.which(command, path=env.get("PATH"))
+    """argv for the server. ${VAR} comes from the environment of this run, as
+    in Claude Code, never from the entry's own env block; the command is
+    resolved with the PATH the server itself will get."""
+    command = expand(str(entry.get("command") or ""), os.environ)
+    args = [expand(str(a), os.environ) for a in (entry.get("args") or [])]
+    resolved = resolve_command(command, env)
     if not resolved:
-        raise SnapError("spawn_failed", "command not found")
+        raise SnapError("spawn_failed", "command not found in the absolute entries of PATH")
+    if os.name != "nt":
+        return [resolved] + args
     batch = resolved.lower().endswith((".cmd", ".bat")) or _base(resolved) == "cmd"
     if batch and not all(SAFE_BATCH_ARG.match(a) for a in args):
         # cmd.exe re-parses the arguments of a batch file: characters outside
@@ -1046,17 +1355,32 @@ def snapshot_server(ctx, name, args):
             s["detail"] = detail
         return s
 
-    # Gates, cheapest first. Nothing is launched before all of them pass.
+    # Gates. Nothing is launched or contacted before all of them pass, and a
+    # gate that cannot be evaluated fails closed.
     if rec is None:
         return skip("not_approved", "no record in mcp-approved.json")
-    if rec.get("launch_fingerprint") not in (None, launch_fingerprint(entry)):
-        return skip("launch_changed", "command, args or url differ from the approval record: re-evaluate, then approve again")
-    if scope == "project" and not args.trust_project and not workspace_trusted(ctx.home_cfg, ctx.project):
-        return skip("untrusted_workspace", "the .mcp.json folder has not passed Claude Code's trust dialog")
-    if rec.get("sandbox_required") and not args.inside_isolation:
+    if not anchored(ctx.home, ctx.project, name, rec):
+        return skip("approval_not_local", "the record was not written by `approve` on this machine, or was edited since: "
+                                          "an approval file that came with the project approves nothing. Evaluate, then approve")
+    problem = record_problem(rec)
+    if problem:
+        return skip("invalid_record", "approval record has %s: approve again" % problem)
+    if rec["launch_fingerprint"] != launch_fingerprint(entry):
+        return skip("launch_changed", "command, args, url or env differ from the approval record: re-evaluate, then approve again")
+    if scope == "project":
+        if project_disabled(ctx, name):
+            return skip("disabled", "rejected by a disabledMcpjsonServers entry")
+        if not args.trust_project and not workspace_trusted(ctx.home_cfg, ctx.project):
+            return skip("untrusted_workspace", "the .mcp.json folder has not passed Claude Code's trust dialog")
+    if needs_isolation(rec) and not args.inside_isolation:
         return skip("isolation", "the approval record requires isolation: run inside it with --inside-isolation")
     if launcher["pinned"] is False and not args.allow_unpinned:
         return skip("unpinned", "the launcher has no exact version: snapshotting would run whatever is newest")
+    if _unverified(launcher) and not rec.get("unverified_launcher") and not args.allow_unpinned:
+        return skip("unpinned", "this script cannot verify what the launcher runs (%s) and the record does not "
+                                "accept that: approve with --allow-unverified" % (launcher.get("note") or "unknown command"))
+    if launcher.get("integrity") and rec.get("integrity") != launcher["integrity"]:
+        return skip("integrity_mismatch", "the local file changed since approval: it was not run. Re-evaluate, then approve again")
     if transport not in ("stdio", "http"):
         return skip("unsupported_transport", "transport %r is not covered" % transport)
     if transport == "http" and entry.get("headersHelper"):
@@ -1279,6 +1603,10 @@ def cmd_compare(args):
             new_text["added"] = {t: cs[name]["tools"][t]["def"] for t in d["added_tools"]}
         if d.get("changed_tools"):
             new_text["changed"] = {c["tool"]: c["after"] for c in d["changed_tools"]}
+        if d.get("newly_covered"):
+            # Nothing of this server was in the baseline: all of it is new text.
+            new_text = {"instructions": cs[name].get("instructions"),
+                        "added": {t: v["def"] for t, v in (cs[name].get("tools") or {}).items()}}
         if new_text and not args.no_scan:
             entry["scan"] = summ["scan"] = _scan(new_text)
         full["servers"][name] = entry
@@ -1348,6 +1676,24 @@ def cmd_accept(args):
     new = dict(new, partial=False)
     new["inventory_hash"] = inventory_hash(new["servers"])
 
+    # Text that is new to the baseline goes through the Tier 0 scanner first.
+    scans = {}
+    old_servers = old["servers"] if old else {}
+    for name, s in sorted(cur["servers"].items()):
+        if s.get("status") != "ok":
+            continue
+        before = old_servers.get(name) or {}
+        if before.get("status") == "ok" and before.get("server_hash") == s.get("server_hash"):
+            continue
+        scans[name] = _scan({"instructions": s.get("instructions"),
+                             "tools": {t: v["def"] for t, v in (s.get("tools") or {}).items()}})
+    rejected = sorted(n for n, r in scans.items() if r.get("verdict") == "REJECT")
+    if rejected and not args.accept_rejected:
+        emit({"status": "REFUSED", "rejected_by_scanner": rejected, "scan": scans,
+              "detail": "the scanner rejects text these servers serve. Nothing was written. Review the findings; "
+                        "--accept-rejected overrides, and is the user's decision"})
+        return EXIT_CHANGED
+
     # Back up first. Old files are moved, never deleted.
     backup = None
     existing = [f for f in BASELINE_FILES if os.path.exists(os.path.join(ctx_dir, f))]
@@ -1368,7 +1714,8 @@ def cmd_accept(args):
     write_text_atomic(os.path.join(ctx_dir, "baseline-date.txt"), date + "\n")
     emit(_coverage(new, {"status": "BASELINE UPDATED", "previous_date": previous_date, "new_date": date,
                          "merged_partial_snapshot": merged, "replaced_legacy_baseline": old_why == "legacy",
-                         "backup": backup, "servers_in_snapshot": sorted(cur["servers"].keys())}))
+                         "backup": backup, "servers_in_snapshot": sorted(cur["servers"].keys()),
+                         "scan": scans}))
     return EXIT_OK
 
 
@@ -1399,6 +1746,9 @@ def build_parser():
     sp.add_argument("--version")
     sp.add_argument("--integrity", help="integrity recorded at evaluation (for example the npm dist.integrity)")
     sp.add_argument("--offline", action="store_true", help="no registry lookup")
+    sp.add_argument("--allow-unverified", action="store_true",
+                    help="approve a launcher this script cannot verify (unknown command, custom registry): "
+                         "the user's decision, recorded in the approval")
     sp.set_defaults(func=cmd_approve)
 
     sp = sub.add_parser("snapshot", help="read tool definitions from approved servers")
@@ -1408,7 +1758,8 @@ def build_parser():
     sp.add_argument("--timeout", type=float, default=20.0, help="seconds per server (default 20)")
     sp.add_argument("--probe-timeout", type=float, default=5.0,
                     help="seconds to wait for server/discover before trying initialize (default 5)")
-    sp.add_argument("--allow-unpinned", action="store_true")
+    sp.add_argument("--allow-unpinned", action="store_true",
+                    help="also run launchers that are unpinned or that this script cannot verify")
     sp.add_argument("--inside-isolation", action="store_true",
                     help="this run is already inside the isolation that sandbox_required records demand")
     sp.add_argument("--trust-project", action="store_true",
@@ -1425,6 +1776,8 @@ def build_parser():
     sp = sub.add_parser("accept", help="make a snapshot the new baseline (old files move to history/)")
     common(sp)
     sp.add_argument("--current", required=True, metavar="FILE")
+    sp.add_argument("--accept-rejected", action="store_true",
+                    help="write the baseline although the scanner rejects text in it")
     sp.set_defaults(func=cmd_accept)
     return p
 
