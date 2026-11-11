@@ -258,7 +258,17 @@ The baseline holds the tool definitions (names, descriptions, parameter schemas,
 python .claude/hooks/cerbero-mcp-snapshot.py pins
 ```
 
-Pin every server reported as `UNPINNED` to an exact version in its configuration (`npx -y pkg@1.2.3`, `uvx pkg==1.2.3`, `docker run image@sha256:...`). A bare `npx -y pkg` runs whatever was published last. For a pinned npm or PyPI package, `pins` asks the public registry for the integrity of that version (package name and version only); add `--offline` to skip the lookup.
+Pin every server reported as `UNPINNED` to an exact version in its configuration. A bare `npx -y pkg` runs whatever was published last. These are the only command shapes the script accepts as pinned:
+
+| Launcher | Exact shape that counts as pinned |
+|----------|-----------------------------------|
+| `npx` | `npx [-y] <name>@<x.y.z> [server args]` |
+| `uvx` | `uvx <name>==<version> [server args]` or `uvx <name>@<version> [server args]` |
+| `pipx` | `pipx run <name>==<version> [server args]` |
+| `docker` | `docker run [-i] [--rm] [-e VAR]... <image>@sha256:<64 hex> [server args]` |
+| `python`, `node` | `<interpreter> <absolute path to one script> [server args]` (`python` may take `-u`, `-I`); the script's hash is recorded |
+
+Everything else is reported as `UNVERIFIED_LAUNCHER`: an extra flag, a second package, a wrapper such as `cmd /c npx ...`, another runner (`npm exec`, `pnpm`, `yarn`, `bun`, `deno`, `uv run`), a compiled binary, a relative path. Rewrite the entry into one of the shapes where you can (on Windows, `npx` works as the command without `cmd /c`). For a pinned npm or PyPI package, `pins` asks the public registry for the integrity of that version (package name and version only); add `--offline` to skip the lookup.
 
 **2. Approve the servers you already trust (one time).** Servers installed before this version have no approval record. For each one, decide whether you trust it as it is today, ideally after `/cerbero evaluate-mcp`, then record it:
 
@@ -268,7 +278,7 @@ python .claude/hooks/cerbero-mcp-snapshot.py approve <server-name> --risk <MEDIU
 
 This is the trust-on-first-use moment: the record says "this command, with these arguments and this environment, at this version, is what I approved". Do it yourself, one server at a time; do not let it be scripted over every configured server. `--risk CRITICAL` marks the server as `sandbox_required`.
 
-`approve` refuses a launcher that is not pinned, and one it cannot verify: a command it does not recognize (a binary on PATH, `python -m ...`) or a pinned package from a custom registry or index. If you have checked such a launcher yourself, add `--allow-unverified`; the record then says so.
+`approve` refuses a launcher that is not pinned, and one it cannot verify (anything outside the shapes in step 1). If you have checked such a launcher yourself, add `--allow-unverified`; the record then says so, and for a binary given by absolute path it also records the file's hash.
 
 The record is bound to your machine: `approve` also stores its hash in `~/.claude/security/cerbero-approvals.json`, and a record without that entry is ignored. Editing `mcp-approved.json` by hand, or changing the server's `command`, `args`, `url` or `env` afterwards, makes the record stop matching: approve again. To rotate a secret without a new approval, keep it in your environment and reference it as `${VAR}` inside `env`.
 
@@ -279,7 +289,7 @@ python .claude/hooks/cerbero-mcp-snapshot.py snapshot --out "$env:TEMP/mcp-curre
 python .claude/hooks/cerbero-mcp-snapshot.py accept --current "$env:TEMP/mcp-current-inventory.json"
 ```
 
-`snapshot` starts each approved stdio server (and sends requests to each approved HTTP server) outside Claude Code to read its tool list. It never starts a server without an approval record, and it skips, with a reason:
+`snapshot` starts each approved stdio server (and sends requests to each approved HTTP server) outside Claude Code to read its tool list. A server from your own configuration starts in an empty working directory, not in the project; only a `.mcp.json` server of a trusted project starts in the project folder. A server that relies on relative paths may therefore fail here while it works in a session. It never starts a server without an approval record, and it skips, with a reason:
 
 | Reason | Why | What to do |
 |--------|-----|------------|
@@ -289,6 +299,8 @@ python .claude/hooks/cerbero-mcp-snapshot.py accept --current "$env:TEMP/mcp-cur
 | `unpinned` | No exact version, or a launcher the script cannot verify and that you have not accepted | Pin it (step 1), or approve it with `--allow-unverified`. `--allow-unpinned` overrides, at your risk |
 | `launch_changed` | Command, arguments, URL or `env` block changed since approval | Re-evaluate, then approve again |
 | `integrity_mismatch` | A local server file changed since approval (it was not run) | Re-evaluate, then approve again |
+| `command_in_project` | The command resolves to a file inside the project folder, directly or through a `PATH` entry there | Use a command outside the project. A repository must not supply the launcher |
+| `invalid_entry` | The configuration entry is malformed | Fix the entry |
 | `disabled` | A `disabledMcpjsonServers` entry rejects this `.mcp.json` server | Nothing: Claude Code does not run it either |
 | `untrusted_workspace` | The server comes from the project's `.mcp.json` and the folder has not passed Claude Code's trust dialog | Open the project in Claude Code and accept the dialog, or pass `--trust-project` |
 | `isolation` | The record says `sandbox_required` | Run the snapshot inside the container or VM, with `--inside-isolation` |

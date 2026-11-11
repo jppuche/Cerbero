@@ -379,7 +379,7 @@ An independent review of the first implementation found defects in the launch ga
 | 2 | A credential in a launcher spec leaked: `uvx --from git+https://TOKEN@host/...@1.0.0` counted as pinned, was sent to pypi.org, and was written to the approval record, snapshots and stdout. Same for URL paths and for `args[0]` of unknown launchers. | **Fixed.** Pinned requires a registry-style package name. `registry_integrity` re-checks that itself and sends nothing else. Every stored spec goes through `redact()`: a URL is cut to `scheme://host[:port]`, an unknown launcher is stored as its command only, a secret-looking `--flag=value` loses its value. The `url` launcher spec is the origin; a changed path is still caught by `launch_fingerprint`. |
 | 3 | The workspace trust flag was treated as approval of project servers, and `enabledMcpjsonServers` / `disabledMcpjsonServers` were never read. A cloned repository could ship `.mcp.json` plus a matching `mcp-approved.json`. | **Fixed, by a different route than the enabled list.** Vendor docs (`mcp.md`, "Project server approvals and workspace trust", re-read 2026-11-11): approvals live in settings files, and Claude Code trusts an in-repository one only after a git "is it tracked" check. Decision: an approval file inside the project cannot be trusted at all. `approve` also writes the record's hash to `~/.claude/security/cerbero-approvals.json`, keyed by project path, and `snapshot` skips any record without that entry (`approval_not_local`), whatever the scope and whatever `--trust-project` says. A hand-edited record fails the same check. `disabledMcpjsonServers` from any settings file is honoured (`disabled`). `enabledMcpjsonServers` is deliberately **not** required: `op-evaluate-mcp` takes the first snapshot (Step 8.4) before the server is enabled (Step 8.5), and the local anchor is already a per-server decision by the user. |
 | 4 | On Windows `shutil.which` searches the current directory before `PATH`, so a repository with `npx.cmd` at its root hijacked a user-scope server. | **Fixed.** `resolve_command` searches the absolute entries of `PATH` only, on every OS; empty and relative entries and the current directory are skipped. |
-| 5 | Pin check holes: `npx pkg@1.2` passed; launchers classified `pinned: None` passed approve and snapshot; `--with other` and `--registry=` were ignored. | **Fixed.** npm needs `x.y.z`. `uv run`, `yarn dlx`, `bun x`, `deno run npm:/jsr:/URL`, `node .../npx-cli.js` are classified; `--with` packages must be pinned too; `--with-requirements` and `--with-editable` are unpinned. A custom registry or index (flag or env name) and any unknown command are `pinned: None`, and `None` no longer passes: `approve` refuses with `UNVERIFIED_LAUNCHER` unless the user passes `--allow-unverified`, which is recorded, and `snapshot` skips it otherwise. Git references pinned to a commit are treated as unpinned (not implemented). |
+| 5 | Pin check holes: `npx pkg@1.2` passed; launchers classified `pinned: None` passed approve and snapshot; `--with other` and `--registry=` were ignored. | **Fixed, then replaced: the classifier described in this row was itself rewritten as an allowlist, see 8.5.** npm needs `x.y.z`. `uv run`, `yarn dlx`, `bun x`, `deno run npm:/jsr:/URL`, `node .../npx-cli.js` are classified; `--with` packages must be pinned too; `--with-requirements` and `--with-editable` are unpinned. A custom registry or index (flag or env name) and any unknown command are `pinned: None`, and `None` no longer passes: `approve` refuses with `UNVERIFIED_LAUNCHER` unless the user passes `--allow-unverified`, which is recorded, and `snapshot` skips it otherwise. Git references pinned to a commit are treated as unpinned (not implemented). |
 | 6 | Approval records failed open: no `launch_fingerprint` meant "launch", and `risk: CRITICAL` without `sandbox_required` ran outside isolation. | **Fixed.** `invalid_record` for a record without a well-formed `launch_fingerprint` or a valid `risk`; CRITICAL always needs `--inside-isolation`. |
 | 7 | `snapshot` did not compare the recorded integrity before launching, so a modified approved local script ran first and was reported afterwards. | **Fixed** for local files (`integrity_mismatch`, not launched). **By design** for npm and PyPI packages: the registry comparison stays in `pins`, which runs first in every operation, because `snapshot` makes no registry request. |
 | 8 | Hangs: a stdio write could block for ever on a server that floods output and never reads; HTTP had only a per-read timeout. | **Fixed.** Writes run under the per-server deadline; a `nextCursor` over 4,096 characters is a protocol error; the whole HTTP exchange runs under one deadline with a watchdog, and the deadline is checked between reads. |
@@ -391,3 +391,57 @@ An independent review of the first implementation found defects in the launch ga
 | 10 | The no-shell test was a substring grep. | **Fixed.** Structural (`ast`): `shell=` must be the literal `False`, no `os.system`/`os.popen`/`os.spawn*`/`os.exec*`, no unknown `**` mapping on a `subprocess` call. |
 
 Still open after the review, by decision: files a launcher reads from the project folder (`.npmrc`, `uv.toml`), the imports of an approved local script, and the user's own environment for `${VAR}` inside `env` are not covered (README, *Rug pull detection limits*).
+
+### 8.5 Launcher allowlist and launch hardening (2026-11-11, second review)
+
+A second review found eleven more defects, most of them in `classify_launcher`. Three examples: `node npx-cli.js -y pkg@1.2.3` was rewritten to "npx, pinned" from the file's basename; `npx -y -p pkg@1.2.3 -c "echo x"` was pinned; `docker run -i --ulimit x@sha256:<hex> evil:latest` was pinned on a flag's value. The cause was the approach: the classifier tried to understand the command lines of six tools, and every option it did not know was a hole. The maintainer decided to replace parse-and-guess with an allowlist. This section replaces what sections 2C, 8.2 (D6) and 8.4 (items 2 and 5) say about classification.
+
+**Rule.** `pinned: True` only for the shapes below, each parsed token by token: the launcher, an optional subcommand, flags from a short list, one spec, then arguments the launcher hands to the server. `pinned: False` for one of those shapes whose spec has no exact version. `pinned: None` (unverified) for everything else. Unverified launchers are not started unless the approval record accepts them (`approve --allow-unverified`).
+
+| Launcher | Shape | Allowed flags, and why each is harmless |
+|----------|-------|------------------------------------------|
+| `npx` | `npx [flags] <name>@<x.y.z> args...` | `-y`, `--yes`: answers npx's install prompt, which a stdio server has no terminal to answer. Nothing else: `-p`/`--package` adds a package, `-c`/`--call` replaces the command, `-w` selects a workspace, `--registry` changes the source. |
+| `uvx` | `uvx <name>==<version> args...` or `uvx <name>@<version> args...` | None. `--from` and `--with` change or add packages, `--index*` changes the source, `--python` selects an interpreter by path. Extras (`name[x]`) are not accepted. |
+| `pipx` | `pipx run <name>==<version> args...` | None. `--spec` and `--pip-args` change what is installed. |
+| `docker` | `docker run [flags] <image>@sha256:<64 hex> args...` | `-i`, `--interactive`: keeps stdin open, required by stdio transport. `--rm`: removes the container afterwards. `-e X`, `--env X`, `--env=X`: sets a variable inside the container, cannot change which image runs, and its value is not stored. Not allowed: mounts, `--privileged`, `--entrypoint`, `--network`, combined short flags (`-it`), options before `run`. |
+| `python`, `node` | `<interpreter> [flags] <absolute script> args...` | `python -u` (unbuffered stdio) and `python -I` (isolated from the user's site and environment). No flag for `node`. The script must be an existing absolute path and not a package runner (`npx-cli.js`, `npm-cli.js`, ...); its SHA-256 is the integrity that is recorded and re-checked before every launch. The interpreter may be a bare name or an absolute path, on the same footing as a bare `npx`. |
+
+All three package launchers stop reading their own options at the first positional argument, so nothing after the spec can change what is fetched. Exact version means `x.y.z` (with optional pre-release or build) for npm, a PEP 440 release for PyPI, and a full lowercase digest for images: `1.2`, `^1.2.3`, `latest` and other dist-tags are `UNPINNED`.
+
+An `env` block naming a variable of the launcher itself makes any shape unverified, by prefix: `NPM_`, `YARN_`, `COREPACK_`, `UV_`, `PIP_`, `PIPX_`, `DOCKER_`, `NODE_`, `PYTHON`, `PATH`, `LD_`, `DYLD_`. This list is a second layer, not the gate: the whole `env` block is already in the launch fingerprint the user approved.
+
+**Legitimate setups that now need `--allow-unverified`** (or a rewrite into a shape above):
+
+- `cmd /c npx -y pkg@1.2.3`, the form many Windows guides give. Rewrite as `npx` directly: the script resolves `npx.cmd` itself.
+- `npx` with any other flag, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`, `deno run`, `uv run`, `uv tool run`, `podman`.
+- `uvx --from <pkg>==<v> <command>`, where the command name differs from the package name, and `uvx --python ...`.
+- `docker run` with a volume or network option.
+- A private registry or index, by flag or by environment variable.
+- `python -m module`, a relative script path (`python server.py`), other interpreters (`deno`, `bun`, `ruby`, `java -jar`), and any compiled server binary.
+- An entry whose `env` sets `PYTHONUNBUFFERED`, `NODE_ENV` or another variable with a listed prefix, although those two are harmless.
+
+For an unverified launcher whose command is an absolute path to a file, the file's hash is still recorded and re-checked before launch: not a pin, but a changed binary is noticed before it runs.
+
+**Stored text (review item 5).** `spec` is text only where the shape guarantees what the text is: a registry package spec, an image reference, the script path, a URL origin. For an unverified launcher it is `sha256` of command and arguments, plus a fixed reason string. `--token value`, an scp-style git reference or a URL with credentials therefore never reach `mcp-approved.json`, a snapshot or stdout. `redact()` and the flag tables of the previous classifier are gone.
+
+**Child process hardening (review item 4).**
+
+| Measure | Detail |
+|---------|--------|
+| Absolute command | `resolve_command` returns an absolute path or nothing: bare names from absolute `PATH` entries only, a relative command path made absolute against the project. `subprocess` never receives a relative executable, so how `CreateProcess` or `execvp` would resolve one is not a question. |
+| Not from the project | A command that resolves inside the project folder, as written or through a `PATH` entry there, is refused (`skipped/command_in_project`). Exception: an unverified binary whose own hash is in the approval record. |
+| Working directory | An empty temporary folder, removed afterwards, for user-scope and local-scope servers. The project folder only for a `.mcp.json` server of a trusted workspace (or `--trust-project`). |
+| Windows | `NoDefaultCurrentDirectoryInExePath=1` in the child's environment, so lookups the launcher makes itself skip its working directory. |
+
+**Smaller items.** A malformed entry (`env` or `headers` not an object, `args` not a list of strings) skips that one server with `invalid_entry`, and an unexpected exception in one server is recorded as `internal_error` for that server only. `mcp-audit.py` flushes stdout inside its `try` and exits 0 when the pipe is closed (it exited 120 with text on stderr). The test that reached `mcp.example.com` now uses a closed port on `127.0.0.1`. The stdin pipe of a stuck session is closed once the process is gone.
+
+**Known limitations (also in the README).**
+
+- The user's own process environment is trusted and is not in the fingerprint. That includes the `env` block of a project's `.claude/settings.json` when the snapshot runs through the agent's shell, which a repository can ship.
+- `.npmrc`, `uv.toml`, `pip.conf` and similar configuration files are not read or hashed. The neutral working directory keeps project-level ones away from user-scope and local-scope servers only.
+- Hash-then-launch window: a local file is hashed, then started.
+- A POSIX child that calls `setsid` leaves the process group and is not killed; Windows has the orphan case of D13.
+- Dependencies of a pinned package are not pinned, and an approved script's imports are not hashed.
+- Git references pinned to a commit, and package extras, are not recognized as pinned.
+
+**Not done.** `enabledMcpjsonServers` is still not required (reason in 8.4 item 3). Value hashes are still unsalted (8.4 item 9c). No Job Object (D13).

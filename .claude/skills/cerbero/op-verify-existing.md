@@ -27,8 +27,9 @@ python <snapshot> snapshot --out "$env:TEMP/mcp-current-inventory.json"
 
 | Finding | Meaning | Classification |
 |---------|---------|----------------|
-| `UNPINNED` | Package launcher without an exact version (`npx -y pkg`, `pkg@latest`, `pkg@1.2`, `image:tag`), or one that resolves something else at start (a URL or git reference, `uv run`, `--with` an unpinned package) | SUSPICIOUS |
-| `UNVERIFIED_LAUNCHER` | A command the script cannot classify, or a pinned package from a custom registry, without the user's recorded decision | SUSPICIOUS (ask the user) |
+| `UNPINNED` | A known launcher shape without an exact version (`npx -y pkg`, `pkg@latest`, `pkg@1.2`, `image:tag`) | SUSPICIOUS |
+| `UNVERIFIED_LAUNCHER` | Anything that is not one of the exact shapes in op-evaluate-mcp Step 6 (an extra flag, a second package, a wrapper such as `cmd /c` or `sh -c`, another package runner, a compiled binary, a relative path), without the user's recorded decision | SUSPICIOUS (ask the user) |
+| `INVALID_ENTRY` | The configuration entry is malformed (`args` is not a list, `env` is not an object) | Report; Claude Code would not load it either |
 | `VERSION_DRIFT` | The launcher differs from the approved one | SUSPICIOUS (re-evaluate) |
 | `LAUNCH_CHANGED` | Command, arguments, URL or environment block differ from the approval record | SUSPICIOUS (re-evaluate) |
 | `APPROVAL_NOT_LOCAL` | The record was not written by `approve` on this machine, or was edited afterwards (for example it came with the repository) | SUSPICIOUS. Never approve on the user's behalf to clear it |

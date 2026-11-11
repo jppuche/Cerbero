@@ -155,7 +155,17 @@ Classify per the Risk Classification table in SKILL.md. Record the risk level an
 
 ## Step 6 - Verdict
 
-**Pinned version required:** APPROVED needs an install command with an exact version from the public registry: `npx -y <pkg>@<x.y.z>`, `uvx <pkg>==<version>`, or a Docker image by digest (`image@sha256:...`). A bare `npx -y <pkg>`, `@latest`, a version range (`@1.2` is a range for npm), an image tag, a URL or git reference, `uv run`, or `--with` an unpinned package runs whatever is newest on each start, which is the most common rug-pull path. If no exact version can be pinned, the verdict is REQUIRES HUMAN REVIEW with the reason `version not pinned`. A launcher the snapshot script cannot classify (a binary on PATH, `python -m ...`, a custom registry or index) is also REQUIRES HUMAN REVIEW, reason `launcher not verifiable`: only the user can accept it (Step 8.2).
+**Pinned version required:** APPROVED needs the server to be configured in one of these exact shapes. The snapshot script accepts nothing else as pinned:
+
+| Launcher | Exact shape that counts as pinned |
+|----------|-----------------------------------|
+| `npx` | `npx [-y] <name>@<x.y.z> [server args]` |
+| `uvx` | `uvx <name>==<version> [server args]` or `uvx <name>@<version> [server args]` |
+| `pipx` | `pipx run <name>==<version> [server args]` |
+| `docker` | `docker run [-i] [--rm] [-e VAR]... <image>@sha256:<64 hex> [server args]` |
+| `python`, `node` | `<interpreter> <absolute path to one script> [server args]` (`python` may take `-u`, `-I`); the script's hash is recorded |
+
+A bare `npx -y <pkg>`, `@latest`, a version range (`@1.2` is a range for npm) or an image tag runs whatever is newest on each start, which is the most common rug-pull path: the verdict is REQUIRES HUMAN REVIEW with the reason `version not pinned`. Any other command line is `launcher not verifiable`, also REQUIRES HUMAN REVIEW: one more flag (a registry, a second package, a volume mount), a wrapper (`cmd /c`, `sh -c`, `env`), another runner (`npm exec`, `pnpm`, `yarn`, `bun`, `deno`, `uv run`), a compiled binary, a relative path, or an `env` block that sets a variable of the launcher itself (`NPM_*`, `UV_*`, `PIP_*`, `DOCKER_*`, `NODE_*`, `PYTHON*`, `PATH`). Prefer rewriting the configuration into one of the shapes above; otherwise only the user can accept it (Step 8.2).
 
 **Pre-verdict check:** before the verdict, list steps 1-7 with their status (COMPLETED or SKIPPED) and the reason for each SKIPPED one. A step skipped with no reason blocks the verdict: an APPROVED that rests on a step nobody ran is the failure this operation exists to prevent.
 
@@ -238,7 +248,7 @@ REASON: <one line>
    ```powershell
    python <snapshot> approve <name> --risk <MEDIUM|HIGH|CRITICAL> --integrity "<npm dist.integrity or shasum from the report>"
    ```
-   The command refuses an unpinned launcher. It also refuses a launcher it cannot verify, with `UNVERIFIED_LAUNCHER`: add `--allow-unverified` only when the user has said, in this conversation, that they checked that launcher and accept it. Without `--integrity` it asks the public registry for the integrity of the pinned version (a registry-style package name and its version only; `--offline` skips that).
+   The command refuses an unpinned launcher. It also refuses a launcher that is not one of the shapes in Step 6, with `UNVERIFIED_LAUNCHER`: add `--allow-unverified` only when the user has said, in this conversation, that they checked that launcher and accept it. Without `--integrity` it asks the public registry for the integrity of the pinned version (a registry-style package name and its version only; `--offline` skips that).
    The record is bound to this machine (its hash is also stored under the user's home) and to the server's command, arguments, URL and environment block as configured now. Any later edit of those, including an `env` entry, needs a new evaluation and a new `approve`; a secret that has to rotate belongs in the environment, referenced as `${VAR}` in the `env` block. Never edit `mcp-approved.json` by hand.
 3. If CRITICAL: `approve` sets `sandbox_required: true` in the record (it means whole-process isolation; key name kept for compatibility), and the report (Step 7) carries the same field. Repeat it in the `[security]` log entry of step 6: the full audit (op-full-audit Step 4.6) reads the approval record first and the log entry as a fallback.
 4. Add the server to the baseline. `snapshot` starts the server just installed, reads its tool definitions, and `accept` merges that one server into the existing baseline (the previous baseline files move to `.claude/security/history/`):
