@@ -6,7 +6,7 @@ cerbero-mcp-snapshot/1 baseline. It warns through one JSON object on stdout
 exits 0. It must never block on its own and never fail closed.
 
 Also here: static checks on the new files (stdlib-only imports, Python 3.8
-syntax).
+syntax). The no-shell check is structural and lives in test_mcp_gates.py.
 """
 import ast
 import json
@@ -234,12 +234,6 @@ class TestStatic(unittest.TestCase):
         for rel in self.FILES:
             with self.subTest(file=rel):
                 self._tree(rel, feature_version=(3, 8))
-
-    def test_snapshot_script_never_uses_a_shell(self):
-        with open(os.path.join(REPO_ROOT, self.FILES[0]), encoding="utf-8") as f:
-            src = f.read()
-        self.assertNotIn("shell=True", src)
-        self.assertNotIn("os.system", src)
 
 
 if __name__ == "__main__":

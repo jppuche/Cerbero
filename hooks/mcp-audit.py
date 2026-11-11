@@ -40,9 +40,11 @@ def _norm(name):
 
 def _load_index(baseline_path, cache_path):
     """({server: {"status", "reason", "tools": [...]}}, cache, fresh) from the baseline.
-    Parsed once per baseline version: the cache is keyed by mtime and size."""
+    Parsed once per baseline version: the cache is keyed by the baseline's
+    path, modification time (ns) and size. A rewrite that keeps all three is
+    not noticed until the next change."""
     st = os.stat(baseline_path)
-    key = [st.st_mtime, st.st_size]
+    key = [os.path.normcase(os.path.abspath(baseline_path)), st.st_mtime_ns, st.st_size]
     cache = {}
     try:
         with open(cache_path, "r", encoding="utf-8") as f:
@@ -83,14 +85,17 @@ def _split_tool(tool_name, data, servers):
     return server, tool
 
 
-def _tripwire(data, tool_name, project, state_dir):
-    """(warning or None, ask). Any exception is the caller's to swallow."""
+def _tripwire(data, tool_name, project):
+    """(warning or None, ask). Any exception is the caller's to swallow.
+    The cache sits next to the baseline, in the project, so projects that
+    share one CERBERO_LOG_DIR never read each other's tool set."""
     mode = os.environ.get("CERBERO_TRIPWIRE", "warn").strip().lower()
     if mode == "off" or not tool_name.startswith("mcp__"):
         return None, False
     baseline_path = os.path.join(project, ".claude", "security", "mcp-inventory.json")
     if not os.path.isfile(baseline_path):
         return None, False
+    state_dir = os.path.dirname(baseline_path)
     cache_path = os.path.join(state_dir, "mcp-tripwire-cache.json")
     servers, cache, dirty = _load_index(baseline_path, cache_path)
     if servers is None:
@@ -161,7 +166,7 @@ def main():
     try:
         # Hook input is UTF-8. Read bytes: on Windows sys.stdin decodes with the locale code page.
         data = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace"))
-    except (json.JSONDecodeError, ValueError):
+    except (OSError, ValueError):
         sys.exit(0)
     if not isinstance(data, dict):
         sys.exit(0)
@@ -191,9 +196,9 @@ def main():
     # Log rotation: truncate to last 500 entries if over 1MB
     try:
         if os.path.exists(log_path) and os.path.getsize(log_path) > 1_000_000:
-            with open(log_path, "r", encoding="utf-8") as f:
+            with open(log_path, "rb") as f:        # bytes: a damaged line must not stop the rotation
                 lines = f.readlines()
-            with open(log_path, "w", encoding="utf-8") as f:
+            with open(log_path, "wb") as f:
                 f.writelines(lines[-500:])
     except OSError:
         pass  # Fail open on rotation errors
@@ -228,7 +233,7 @@ def main():
     messages = []
     ask = False
     try:
-        warning, ask = _tripwire(data, str(tool_name), project, log_dir)
+        warning, ask = _tripwire(data, str(tool_name), project)
         if warning:
             messages.append(warning)
     except Exception:
@@ -253,4 +258,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        sys.exit(0)  # Fail open: no error of this hook may block or fail a tool call
