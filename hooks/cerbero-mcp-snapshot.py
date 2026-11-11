@@ -26,14 +26,18 @@ Safety rules:
   - Servers from a project .mcp.json need a trusted workspace (the same
     hasTrustDialogAccepted flag Claude Code uses), or --trust-project, and
     are skipped when a disabledMcpjsonServers entry rejects them.
-  - Only a pinned launcher runs: an exact registry version, an image digest
-    or a local file whose hash still matches the record. Unpinned ones need
-    --allow-unpinned; launchers this script cannot verify need the user's
-    recorded decision (approve --allow-unverified).
+  - Only a pinned launcher runs, and pinned means one of a few exact
+    command shapes (see "Launcher classification"): an exact registry
+    version, an image digest, or an interpreter running one absolute script
+    whose hash still matches the record. Unpinned ones need --allow-unpinned;
+    every other launcher is unverified and needs the user's recorded
+    decision (approve --allow-unverified).
   - Records with sandbox_required, or risk CRITICAL, are skipped without
     --inside-isolation.
-  - A bare command is looked up in the absolute entries of PATH only, never
-    in the current directory.
+  - The command is resolved to an absolute path here: absolute PATH entries
+    only, never the current directory, and not a file inside the project
+    unless that file's own hash is in the record. Servers start in an empty
+    working directory unless they come from a trusted project's .mcp.json.
   - OAuth, headersHelper, SSE/WebSocket, plugin, connector and managed
     servers are not covered: reported as skipped, never as unchanged.
   - Environment and header values are never printed or stored (hashes only).
@@ -72,8 +76,6 @@ MAX_PAGES = 200
 MAX_CURSOR = 4096                   # characters of a nextCursor we are willing to send back
 SAFE_BATCH_ARG = re.compile(r"^[A-Za-z0-9@/._:=+-]+$")
 VAR_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
-DOCKER_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
-INTERPRETERS = re.compile(r"^(python[0-9.]*|py|pythonw|node|nodejs|deno|bun|ruby|java|dotnet|bash|sh|pwsh|powershell)$")
 
 EXIT_OK, EXIT_CHANGED, EXIT_ERROR, EXIT_LEGACY = 0, 1, 2, 3
 
@@ -284,87 +286,66 @@ def launch_fingerprint(entry, env=None):
 
 
 # --------------------------------------------------------------------------
-# Launcher classification (layer C, static)
+# Launcher classification (layer C, static): an allowlist of exact shapes
 # --------------------------------------------------------------------------
+#
+# This code does not try to understand the command lines of npx, uvx, pipx,
+# docker or an interpreter: every flag it did not know would be a hole. It
+# recognizes the few shapes below, token by token, and calls everything else
+# unverified. A shape is: the launcher, optionally a subcommand, zero or more
+# flags from a short harmless list, ONE spec, then arguments that the
+# launcher hands to the server untouched.
+#
+#   npx    [-y | --yes]                       <name>@<x.y.z>      args...
+#   uvx                                       <name>==<version>   args...
+#   uvx                                       <name>@<version>    args...
+#   pipx   run                                <name>==<version>   args...
+#   docker run [-i | --interactive | --rm | -e X | --env X | --env=X]
+#                                             <image>@sha256:<64 hex>  args...
+#   python | node  [python only: -u | -I]     <absolute script>   args...
+#
+# Why each flag is harmless: -y/--yes only answers npx's install prompt (a
+# stdio server has no terminal to answer it); -i/--interactive keeps stdin
+# open, which stdio transport needs; --rm removes the container afterwards;
+# -e/--env sets a variable inside the container and cannot change the image;
+# python -u unbuffers stdio and -I isolates the interpreter from the user's
+# site and environment. All three launchers stop reading their own options at
+# the first positional, so nothing after the spec can change what is fetched.
+#
+# Anything else is unverified: an unknown flag, a second package (-p, --with,
+# -w), a command override (-c, --from, --spec, --entrypoint), a registry or
+# index flag, a wrapper (cmd /c, sh -c, env, a package runner started as
+# `node <file>`), any other launcher (npm exec, pnpm, yarn, bun, deno, uv run,
+# podman), a relative path, a compiled binary, or an env block that changes
+# the launcher itself.
 
-NPM_NAME = re.compile(r"^(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*$", re.I)
+NPM_NAME = re.compile(r"(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*", re.I)
 NPM_EXACT = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$")
-PYPI_NAME = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?(\[[A-Za-z0-9,._ -]*\])?$")
+PYPI_NAME = re.compile(r"[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?")
 PYPI_EXACT = re.compile(r"^\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?(\+[0-9A-Za-z.]+)?$")
-SECRET_FLAG = re.compile(r"(?i)^(--?[a-z0-9_.-]*(token|key|secret|passw|auth|credential|bearer|cookie|session)[a-z0-9_.-]*)=.*$")
-REGISTRY_FLAGS = ("--registry", "--index-url", "-i", "--index", "--default-index", "--extra-index-url",
-                  "--find-links", "-f")
-REGISTRY_ENV = ("NPM_CONFIG_REGISTRY", "NPM_CONFIG_USERCONFIG", "YARN_NPM_REGISTRY_SERVER", "COREPACK_NPM_REGISTRY",
-                "UV_INDEX", "UV_INDEX_URL", "UV_DEFAULT_INDEX", "UV_EXTRA_INDEX_URL", "UV_FIND_LINKS",
-                "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "PIP_FIND_LINKS", "PIP_CONFIG_FILE")
-NPX_VALUE_FLAGS = ("-p", "--package", "-c", "--call", "--registry", "--cache", "--userconfig", "--prefix", "-w",
-                   "--workspace")
-UVX_VALUE_FLAGS = ("--from", "--with", "--with-requirements", "--with-editable", "--python", "-p", "--spec",
-                   "--index-url", "-i", "--index", "--default-index", "--extra-index-url", "--find-links", "-f",
-                   "--constraint", "-c", "--overrides", "--cache-dir", "--directory", "--project")
-DOCKER_VALUE_FLAGS = ("-e", "--env", "-v", "--volume", "--name", "-p", "--publish", "--network", "--net",
-                      "--mount", "-w", "--workdir", "-u", "--user", "--entrypoint", "--env-file", "-l",
-                      "--label", "--platform", "-h", "--hostname", "--add-host", "--cap-add", "--cap-drop",
-                      "--memory", "-m", "--cpus", "--pull", "--security-opt", "--tmpfs", "--device", "--gpus")
+IMAGE = re.compile(r"^[a-z0-9][a-z0-9._/:-]*$")
+IMAGE_DIGEST = re.compile(r"^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$")
+LOOSE = re.compile(r"^[0-9A-Za-z.*^~<>=!,|@-]{1,60}$")     # a range or a dist-tag: unpinned, safe to print
+INTERPRETER = re.compile(r"^(python|node)[0-9.]*$")
+INTERPRETER_FLAGS = {"python": ("-u", "-I"), "node": ()}
+RUNNER_SCRIPT = re.compile(r"^(npx|npm|yarn|pnpm|corepack|bunx?|uvx?|pipx?)([-.]|$)")
+# Entry env names that change what a launcher fetches or loads, by prefix.
+LAUNCHER_ENV = ("NPM_", "YARN_", "COREPACK_", "UV_", "PIP_", "PIPX_", "DOCKER_", "NODE_", "PYTHON",
+                "PATH", "LD_", "DYLD_")
 
 
 def _base(cmd):
     b = os.path.basename(str(cmd).replace("\\", "/")).lower()
-    for ext in (".exe", ".cmd", ".bat", ".ps1"):
+    for ext in (".exe", ".cmd", ".bat"):
         if b.endswith(ext):
             return b[:-len(ext)]
     return b
 
 
-def _first_positional(args, value_flags):
-    """First argument that is not a flag or a flag's value."""
-    skip = False
-    for a in args:
-        if skip:
-            skip = False
-            continue
-        if a == "--":
-            continue
-        if a.startswith("-"):
-            if "=" not in a and a in value_flags:
-                skip = True
-            continue
-        return a
-    return None
-
-
-def _flag_values(args, names):
-    out = []
-    for i, a in enumerate(args):
-        for n in names:
-            if a == n and i + 1 < len(args):
-                out.append(args[i + 1])
-            elif a.startswith(n + "="):
-                out.append(a[len(n) + 1:])
-    return out
-
-
-def _split_npm(spec):
-    at = spec.rfind("@")
-    if at > 0:
-        return spec[:at], spec[at + 1:]
-    return spec, None
-
-
-def _split_pypi(spec):
-    if "==" in spec:
-        name, ver = spec.split("==", 1)
-        return name, ver
-    if "@" in spec[1:]:
-        name, ver = spec.rsplit("@", 1)
-        return name, ver
-    return spec, None
-
-
 def _origin(url):
     """scheme://host[:port] of a URL: no user, no path, no query."""
     try:
-        p = urllib.parse.urlsplit(url)
+        p = urllib.parse.urlsplit(str(url))
         host = p.hostname or ""
         if p.port:
             host = "%s:%d" % (host, p.port)
@@ -373,132 +354,146 @@ def _origin(url):
         return ""
 
 
-def redact(text):
-    """A launcher string that is safe to store and print: anything URL-shaped
-    is cut to its origin, and the value of a secret-looking flag is dropped."""
-    t = str(text)
-    if "://" in t:
-        prefix, _, rest = t.partition("://")
-        scheme = prefix.rsplit("+", 1)[-1]
-        return (prefix[:len(prefix) - len(scheme)] + _origin(scheme + "://" + rest)) or "<redacted>"
-    m = SECRET_FLAG.match(t)
-    if m:
-        return m.group(1) + "=***"
-    return t
+def _package_spec(tok, name_re, seps, exact_re):
+    """(pinned, version) for a registry package spec, or None if it is not one."""
+    m = name_re.match(tok)
+    if not m:
+        return None
+    rest = tok[m.end():]
+    if not rest:
+        return False, None
+    for sep in seps:
+        if rest.startswith(sep) and exact_re.match(rest[len(sep):]):
+            return True, rest[len(sep):]
+    return (False, None) if LOOSE.match(rest) else None
 
 
-def _npm_pinned(spec):
-    name, ver = _split_npm(spec)
-    return bool(NPM_NAME.match(name) and ver and NPM_EXACT.match(ver))
+def _npm_spec(tok):
+    return _package_spec(tok, NPM_NAME, ("@",), NPM_EXACT)
 
 
-def _pypi_pinned(spec):
-    name, ver = _split_pypi(spec)
-    return bool(PYPI_NAME.match(name) and ver and PYPI_EXACT.match(ver))
+def _uvx_spec(tok):
+    return _package_spec(tok, PYPI_NAME, ("==", "@"), PYPI_EXACT)
 
 
-def _custom_registry(entry, args):
-    """True if a flag or an env name points the launcher at another registry."""
-    for a in args:
-        if a in REGISTRY_FLAGS or a.split("=", 1)[0] in REGISTRY_FLAGS:
-            return True
-    env = entry.get("env") if isinstance(entry.get("env"), dict) else {}
-    return any(str(k).upper() in REGISTRY_ENV for k in env)
+def _pipx_spec(tok):
+    return _package_spec(tok, PYPI_NAME, ("==",), PYPI_EXACT)
 
 
-def _package_launcher(kind, specs, pinned_fn, entry, args):
-    """Result for an npm-style or PyPI-style launcher. Only a registry-style
-    name with an exact version is pinned; anything else (a range, a tag, a
-    URL, a git reference, a local path) is not, and is stored redacted."""
-    specs = [s for s in specs if s]
-    if not specs:
-        return {"kind": kind, "spec": "", "pinned": False}
-    pinned = all(pinned_fn(s) for s in specs)
-    out = {"kind": kind, "spec": " ".join(redact(s) for s in specs), "pinned": pinned}
-    if pinned and len(specs) == 1:
-        splitter = _split_npm if kind == "npx" else _split_pypi
-        out["version"] = splitter(specs[0])[1]
-    if pinned and _custom_registry(entry, args):
-        # The version is exact, but it is resolved somewhere this script cannot check.
-        out["pinned"] = None
-        out["note"] = "custom registry or index"
-    return out
+def _image_spec(tok):
+    if IMAGE_DIGEST.match(tok):
+        return True, None
+    return (False, None) if IMAGE.match(tok) else None
+
+
+# launcher: (kind, subcommand, harmless flags, harmless flags that take one value, spec parser)
+SHAPES = {
+    "npx": ("npx", None, ("-y", "--yes"), (), _npm_spec),
+    "uvx": ("uvx", None, (), (), _uvx_spec),
+    "pipx": ("uvx", "run", (), (), _pipx_spec),
+    "docker": ("docker", "run", ("-i", "--interactive", "--rm"), ("-e", "--env"), _image_spec),
+}
+
+
+def _spec_token(args, flags, value_flags):
+    """The token after the allowed flags, or None if any other flag comes first."""
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in flags:
+            i += 1
+        elif a in value_flags:
+            i += 2
+        elif a.startswith("--") and a.split("=", 1)[0] in value_flags:
+            i += 1
+        elif a.startswith("-"):
+            return None
+        else:
+            return a
+    return None
+
+
+def entry_problem(entry):
+    """Why a configuration entry cannot be used, or None."""
+    scalar = (str, int, float)
+    if transport_of(entry) == "stdio":
+        if not isinstance(entry.get("command"), str) or not entry["command"]:
+            return "command is not a string"
+        args = entry.get("args", [])
+        if not isinstance(args, list) or not all(isinstance(a, scalar) and not isinstance(a, bool) for a in args):
+            return "args is not a list of strings"
+    elif not isinstance(entry.get("url"), str):
+        return "url is not a string"
+    for key in ("env", "headers"):
+        block = entry.get(key, {})
+        if not isinstance(block, dict) or not all(isinstance(v, scalar) for v in block.values()):
+            return "%s is not an object of strings" % key
+    return None
 
 
 def classify_launcher(entry, project, env=None):
     """{"kind", "spec", "pinned", ["version"], ["integrity"], ["note"]}.
 
-    pinned is True (an exact registry version, an image digest, or a local
-    file whose hash is recorded), False (a package launcher that resolves
-    something at start: no exact version, a range, a URL, extra unpinned
-    packages) or None (not verifiable here: a remote URL, a custom registry,
-    a launcher this script does not understand). Only True passes the gates
-    on its own; None needs the user's recorded decision.
-    spec never contains a URL path, URL credentials, a query string or an
-    argument: see redact()."""
+    pinned is True only for the shapes listed above; False for one of those
+    shapes without an exact version (a bare name, a range, a dist-tag, an
+    image tag); None for everything else, and for a remote URL. Only True
+    passes the gates on its own.
+
+    spec is text only where the shape guarantees what the text is: a
+    registry package spec, an image reference, the script path, a URL origin.
+    For an unverified launcher it is a hash of command and arguments, so no
+    argument (a token, a URL with credentials) is ever stored or printed."""
     env = os.environ if env is None else env
     if transport_of(entry) != "stdio":
-        return {"kind": "url", "spec": _origin(str(entry.get("url") or "")), "pinned": None}
-
+        return {"kind": "url", "spec": _origin(entry.get("url") or ""), "pinned": None}
     command = str(entry.get("command") or "")
-    args = [str(a) for a in (entry.get("args") or []) if isinstance(a, (str, int, float))]
-    base = _base(command)
-    if base == "cmd" and args and args[0].lower() == "/c" and len(args) > 1:
-        base, args = _base(args[1]), args[2:]
-    elif base in ("env", "winpty") and args:
-        base, args = _base(args[0]), args[1:]
-    if base in ("node", "nodejs") and args and _base(args[0]) in ("npx-cli.js", "npx-cli.cjs", "npx-cli.mjs", "npx"):
-        base, args = "npx", args[1:]
+    args = [str(a) for a in entry.get("args") or []] if isinstance(entry.get("args"), list) else []
+    command_path = expand(command, env)
 
-    npm_sub = {"npm": ("exec", "x"), "pnpm": ("exec", "dlx"), "yarn": ("dlx",), "bun": ("x",)}
-    if base in ("npx", "bunx", "pnpx") or (base in npm_sub and args[:1] and args[0] in npm_sub[base]):
-        if base in npm_sub:
-            args = args[1:]
-        specs = _flag_values(args, ("-p", "--package")) or [_first_positional(args, NPX_VALUE_FLAGS)]
-        return _package_launcher("npx", specs, _npm_pinned, entry, args)
-
-    if base == "uv" and args[:1] == ["run"]:
-        # `uv run` resolves an environment at start, whatever follows.
-        return {"kind": "uvx", "spec": redact(_first_positional(args[1:], UVX_VALUE_FLAGS) or ""), "pinned": False}
-    if base in ("uvx", "pipx") or (base == "uv" and args[:2] == ["tool", "run"]):
-        if base == "uv":
-            args = args[2:]
-        if base == "pipx" and args[:1] == ["run"]:
-            args = args[1:]
-        main = (_flag_values(args, ("--from", "--spec")) or [_first_positional(args, UVX_VALUE_FLAGS)])[:1]
-        extra = [s for v in _flag_values(args, ("--with",)) for s in v.split(",")]
-        out = _package_launcher("uvx", main + extra, _pypi_pinned, entry, args)
-        if out["pinned"] is not False and any(a.split("=", 1)[0] in ("--with-requirements", "--with-editable")
-                                              for a in args):
-            out["pinned"] = False
+    def unverified(why):
+        out = {"kind": "other", "spec": sha([command] + args), "pinned": None, "note": why}
+        if os.path.isabs(command_path) and os.path.isfile(command_path):
+            try:    # not a pin, but a changed binary is still noticed before it runs
+                out.update(integrity=sha_file(command_path), hashed="command")
+            except OSError:
+                pass
         return out
 
-    if base == "deno" and args[:1] == ["run"]:
-        target = _first_positional(args[1:], ()) or ""
-        if "://" in target or target.split(":", 1)[0] in ("npm", "jsr"):
-            return {"kind": "deno", "spec": redact(target), "pinned": False}
+    cfg_env = entry.get("env") if isinstance(entry.get("env"), dict) else {}
+    if any(str(k).upper().startswith(LAUNCHER_ENV) for k in cfg_env):
+        return unverified("the env block sets a variable that changes what the launcher itself does")
+    if ("/" in command or "\\" in command) and not os.path.isabs(command_path):
+        return unverified("relative command path")
+    name = _base(command)
 
-    if base in ("docker", "podman") and "run" in args:
-        image = _first_positional(args[args.index("run") + 1:], DOCKER_VALUE_FLAGS) or ""
-        return {"kind": "docker", "spec": redact(image), "pinned": bool(DOCKER_DIGEST.search(image))}
+    if name in SHAPES:
+        kind, sub, flags, value_flags, parse = SHAPES[name]
+        if sub and args[:1] != [sub]:
+            return unverified("not a known shape of this launcher")
+        tok = _spec_token(args[1:] if sub else args, flags, value_flags)
+        got = parse(tok) if tok else None
+        if got is None:
+            return unverified("not a known shape of this launcher")
+        out = {"kind": kind, "spec": tok, "pinned": got[0]}
+        if got[1]:
+            out["version"] = got[1]
+        return out
 
-    # Local file: the command itself, or the script an interpreter runs.
-    candidates = []
-    if INTERPRETERS.match(base):
-        if "-m" not in args and "-c" not in args and "-e" not in args:
-            candidates = [a for a in args if not a.startswith("-") and a != "run"][:1]
-    elif "/" in command or "\\" in command:
-        candidates = [command]
-    for cand in candidates:
-        path = expand(cand, env)
-        if not os.path.isabs(path):
-            path = os.path.join(project, path)
-        if os.path.isfile(path):
-            try:
-                return {"kind": "path", "spec": redact(cand), "pinned": True, "integrity": sha_file(path)}
-            except OSError:
-                break
-    return {"kind": "other", "spec": redact(command), "pinned": None}
+    interp = INTERPRETER.match(name)
+    if interp:
+        rest = args
+        while rest and rest[0] in INTERPRETER_FLAGS[interp.group(1)]:
+            rest = rest[1:]
+        script = expand(rest[0], env) if rest else ""
+        if not (os.path.isabs(script) and os.path.isfile(script)):
+            return unverified("the interpreter's first argument is not an absolute path to a script")
+        if RUNNER_SCRIPT.match(os.path.basename(script).lower()):
+            return unverified("the script is a package runner")
+        try:    # the hash is of the file that runs; its imports are not covered
+            return {"kind": "path", "spec": rest[0], "pinned": True, "integrity": sha_file(script), "hashed": "script"}
+        except OSError:
+            return unverified("the script cannot be read")
+    return unverified("unknown launcher")
 
 
 def _registry_json(url):
@@ -510,29 +505,25 @@ def _registry_json(url):
 
 def registry_integrity(launcher):
     """Integrity the public registry reports for a pinned npm or PyPI spec.
-    Sends a registry-style package name and an exact version, nothing else:
-    a spec that is a URL, a git reference or a path is never sent anywhere.
-    Returns (value, error)."""
-    kind, spec = launcher.get("kind"), launcher.get("spec") or ""
-    if launcher.get("pinned") is not True:
+    The spec is parsed again here: only a registry-style name with an exact
+    version is ever put in a request. Returns (value, error)."""
+    kind, spec = launcher.get("kind"), str(launcher.get("spec") or "")
+    parse = {"npx": _npm_spec, "uvx": _uvx_spec}.get(kind)
+    got = parse(spec) if parse and launcher.get("pinned") is True else None
+    if not got or got[0] is not True:
         return None, None
+    name, ver = spec[:len(spec) - len(got[1])].rstrip("@="), got[1]
     try:
-        if kind == "npx" and _npm_pinned(spec):
-            name, ver = _split_npm(spec)
+        if kind == "npx":
             doc = _registry_json("https://registry.npmjs.org/%s/%s" % (
                 urllib.parse.quote(name, safe="@"), urllib.parse.quote(ver, safe="")))
             return (doc.get("dist") or {}).get("integrity"), None
-        if kind == "uvx" and _pypi_pinned(spec):
-            name, ver = _split_pypi(spec)
-            name = name.split("[", 1)[0]
-            doc = _registry_json("https://pypi.org/pypi/%s/%s/json" % (
-                urllib.parse.quote(name, safe=""), urllib.parse.quote(ver, safe="")))
-            files = sorted([u.get("filename"), (u.get("digests") or {}).get("sha256")]
-                           for u in doc.get("urls") or [])
-            return ("pypi-files-" + sha(files)) if files else None, None
+        doc = _registry_json("https://pypi.org/pypi/%s/%s/json" % (
+            urllib.parse.quote(name, safe=""), urllib.parse.quote(ver, safe="")))
+        files = sorted([u.get("filename"), (u.get("digests") or {}).get("sha256")] for u in doc.get("urls") or [])
+        return ("pypi-files-" + sha(files)) if files else None, None
     except Exception as e:  # network, HTTP or parse error: report, never raise
         return None, type(e).__name__
-    return None, None
 
 
 # --------------------------------------------------------------------------
@@ -675,6 +666,11 @@ def cmd_pins(args):
             total += 1
             continue
         scope, entry = ctx.configs[name]
+        if entry_problem(entry):
+            report["servers"][name] = {"scope": scope, "approved": rec is not None, "findings": ["INVALID_ENTRY"],
+                                       "note": entry_problem(entry)}
+            total += 1
+            continue
         launcher = classify_launcher(entry, ctx.project)
         findings = []
         row = {"scope": scope, "transport": transport_of(entry), "launcher": launcher,
@@ -697,7 +693,6 @@ def cmd_pins(args):
                 findings.append("UNVERIFIED_LAUNCHER")
             if rec.get("launcher_spec") not in (None, launcher["spec"]):
                 findings.append("VERSION_DRIFT")
-                row["approved_spec"] = redact(rec.get("launcher_spec"))
             if launcher.get("integrity") and rec.get("integrity") != launcher["integrity"]:
                 findings.append("INTEGRITY_MISMATCH")
             if not args.offline and launcher["kind"] in ("npx", "uvx") and launcher["pinned"] is True:
@@ -721,17 +716,20 @@ def cmd_approve(args):
               "detail": "no entry in .mcp.json or ~/.claude.json; plugin, connector and managed servers cannot be approved here"})
         return EXIT_ERROR
     scope, entry = ctx.configs[args.name]
+    if entry_problem(entry):
+        emit({"error": "invalid_entry", "server": args.name, "detail": entry_problem(entry)})
+        return EXIT_ERROR
     launcher = classify_launcher(entry, ctx.project)
     if launcher["pinned"] is False:
         emit({"error": "UNPINNED", "server": args.name, "launcher": launcher,
-              "detail": "pin an exact version (npx pkg@1.2.3, uvx pkg==1.2.3, docker image@sha256:...) before approval. "
-                        "Ranges, tags, URLs, git references and extra unpinned packages do not count"})
+              "detail": "pin an exact version (npx -y pkg@1.2.3, uvx pkg==1.2.3, docker run -i --rm image@sha256:...) "
+                        "before approval. Ranges and tags do not count"})
         return EXIT_CHANGED
     if _unverified(launcher) and not args.allow_unverified:
         emit({"error": "UNVERIFIED_LAUNCHER", "server": args.name, "launcher": launcher,
-              "detail": "this script cannot tell what the launcher runs or whether it is pinned (%s). "
+              "detail": "not one of the launcher shapes this script can verify (%s). "
                         "If the user has checked it and accepts that, approve again with --allow-unverified"
-                        % (launcher.get("note") or "unknown command")})
+                        % launcher.get("note")})
         return EXIT_CHANGED
     integrity = args.integrity or launcher.get("integrity")
     registry_note = None
@@ -794,6 +792,7 @@ class StdioSession(object):
         self.noise = 0
         self._next_id = 0
         self._stuck = False
+        self._writer = None
         self._q = queue.Queue()
         kwargs = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.DEVNULL,
                   "env": env, "cwd": cwd}
@@ -844,7 +843,7 @@ class StdioSession(object):
 
         # A server that never reads its input would block this write for ever
         # once the pipe is full, so the write runs under the same deadline.
-        t = threading.Thread(target=work, daemon=True)
+        t = self._writer = threading.Thread(target=work, daemon=True)
         t.start()
         t.join(remaining)
         if t.is_alive():
@@ -915,10 +914,15 @@ class StdioSession(object):
             self.proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             pass
-        try:
-            self.proc.stdout.close()
-        except (OSError, ValueError):
-            pass
+        if self._stuck and self._writer is not None:
+            self._writer.join(5)     # the process is gone: the blocked write has failed and let go of the pipe
+        for pipe in (self.proc.stdin, self.proc.stdout):
+            if self._stuck and pipe is self.proc.stdin and self._writer is not None and self._writer.is_alive():
+                continue
+            try:
+                pipe.close()
+            except (OSError, ValueError):
+                pass
 
 
 def modern_meta(version):
@@ -1282,15 +1286,28 @@ def _fetch_http(sess, headers):
 # snapshot
 # --------------------------------------------------------------------------
 
-def resolve_command(command, env):
-    """Absolute path of a bare command, searched in the absolute entries of
-    PATH only. The current directory is never searched (Windows and
-    shutil.which do search it first), and neither are empty or relative PATH
-    entries: the check runs from the project folder, and a file there named
-    like the launcher must not be what runs. A command written with a path is
-    returned as written."""
+def _inside(path, folder):
+    """True if path is folder or below it, links resolved."""
+    try:
+        a = os.path.normcase(os.path.realpath(path))
+        b = os.path.normcase(os.path.realpath(folder))
+        return os.path.commonpath([a, b]) == b
+    except (ValueError, OSError):
+        return False
+
+
+def resolve_command(command, env, project=None):
+    """Absolute path of the file a command names, or None. Always absolute, so
+    the operating system never resolves anything against a working directory.
+
+    A bare name is searched in the absolute entries of PATH only. The current
+    directory is never searched (Windows and shutil.which search it first),
+    and neither are empty or relative PATH entries. A command written with a
+    path is taken as written; a relative one is relative to the project."""
     if "/" in command or "\\" in command:
-        return command
+        path = command if os.path.isabs(command) else os.path.join(project or os.getcwd(), command)
+        path = os.path.abspath(path)
+        return path if os.path.isfile(path) else None
     exts = [""]
     if os.name == "nt":
         pathext = [e for e in env.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(os.pathsep) if e]
@@ -1303,23 +1320,28 @@ def resolve_command(command, env):
         for ext in exts:
             cand = os.path.join(folder, command + ext)
             if os.path.isfile(cand) and (os.name == "nt" or os.access(cand, os.X_OK)):
-                return cand
+                return os.path.abspath(cand)
     return None
 
 
-def _stdio_argv(entry, env):
-    """argv for the server. ${VAR} comes from the environment of this run, as
-    in Claude Code, never from the entry's own env block; the command is
-    resolved with the PATH the server itself will get."""
+def _stdio_argv(entry, env, project, command_is_hashed):
+    """argv for the server, argv[0] absolute. ${VAR} comes from the
+    environment of this run, as in Claude Code, never from the entry's own
+    env block; the command is resolved with the PATH the server will get.
+
+    A command that resolves into the project folder is refused, whether it
+    was written that way or found through a PATH entry there: the project is
+    the one place a repository controls. The exception is a command whose
+    own hash is in the approval record."""
     command = expand(str(entry.get("command") or ""), os.environ)
     args = [expand(str(a), os.environ) for a in (entry.get("args") or [])]
-    resolved = resolve_command(command, env)
+    resolved = resolve_command(command, env, project)
     if not resolved:
-        raise SnapError("spawn_failed", "command not found in the absolute entries of PATH")
-    if os.name != "nt":
-        return [resolved] + args
+        raise SnapError("spawn_failed", "command not found (absolute PATH entries only)")
+    if _inside(resolved, project) and not command_is_hashed:
+        raise SnapError("command_in_project", "the command resolves to a file inside the project folder", status="skipped")
     batch = resolved.lower().endswith((".cmd", ".bat")) or _base(resolved) == "cmd"
-    if batch and not all(SAFE_BATCH_ARG.match(a) for a in args):
+    if os.name == "nt" and batch and not all(SAFE_BATCH_ARG.match(a) for a in args):
         # cmd.exe re-parses the arguments of a batch file: characters outside
         # this set could run other commands.
         raise SnapError("unsafe_args", "batch launcher with arguments outside [A-Za-z0-9@/._:=+-]", status="skipped")
@@ -1344,6 +1366,8 @@ def snapshot_server(ctx, name, args):
         return {"status": "skipped", "reason": "not_covered_source",
                 "detail": "approved, but not in .mcp.json or ~/.claude.json (plugin, connector and managed servers are not covered)"}
     scope, entry = ctx.configs[name]
+    if entry_problem(entry):
+        return {"status": "skipped", "reason": "invalid_entry", "scope": scope, "detail": entry_problem(entry)}
     transport = transport_of(entry)
     launcher = classify_launcher(entry, ctx.project)
     s = {"scope": scope, "transport": transport, "launcher": launcher,
@@ -1377,8 +1401,8 @@ def snapshot_server(ctx, name, args):
     if launcher["pinned"] is False and not args.allow_unpinned:
         return skip("unpinned", "the launcher has no exact version: snapshotting would run whatever is newest")
     if _unverified(launcher) and not rec.get("unverified_launcher") and not args.allow_unpinned:
-        return skip("unpinned", "this script cannot verify what the launcher runs (%s) and the record does not "
-                                "accept that: approve with --allow-unverified" % (launcher.get("note") or "unknown command"))
+        return skip("unpinned", "not one of the launcher shapes this script can verify (%s), and the record does "
+                                "not accept that: approve with --allow-unverified" % launcher.get("note"))
     if launcher.get("integrity") and rec.get("integrity") != launcher["integrity"]:
         return skip("integrity_mismatch", "the local file changed since approval: it was not run. Re-evaluate, then approve again")
     if transport not in ("stdio", "http"):
@@ -1387,13 +1411,21 @@ def snapshot_server(ctx, name, args):
         return skip("headers_helper", "headersHelper runs a command: not executed")
 
     env = dict(os.environ)
+    neutral = None
     try:
         if transport == "stdio":
             for k, v in (entry.get("env") or {}).items():
                 env[str(k)] = expand(str(v), os.environ)
             env["CLAUDE_PROJECT_DIR"] = ctx.project
-            argv = _stdio_argv(entry, env)
-            got = fetch_stdio(argv, env, ctx.project, args.timeout, min(args.probe_timeout, args.timeout / 2.0))
+            if os.name == "nt":
+                env["NoDefaultCurrentDirectoryInExePath"] = "1"   # the child's own lookups skip its cwd too
+            argv = _stdio_argv(entry, env, ctx.project, launcher.get("hashed") == "command")
+            # Only a .mcp.json server of a trusted workspace starts in the project. Any other
+            # server gets an empty folder: files in the project must not steer its launcher.
+            cwd = ctx.project
+            if scope != "project":
+                cwd = neutral = tempfile.mkdtemp(prefix="cerbero-cwd-")
+            got = fetch_stdio(argv, env, cwd, args.timeout, min(args.probe_timeout, args.timeout / 2.0))
         else:
             url = expand(str(entry.get("url") or ""), env)
             if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
@@ -1402,6 +1434,9 @@ def snapshot_server(ctx, name, args):
             got = fetch_http(url, headers, args.timeout)
     except SnapError as e:
         return skip(e.reason, e.detail, status=e.status)
+    finally:
+        if neutral:
+            shutil.rmtree(neutral, ignore_errors=True)
 
     s.update({
         "status": "ok", "reason": None,
@@ -1421,7 +1456,10 @@ def cmd_snapshot(args):
     ctx = Context(args)
     servers = {}
     for name in ctx.names(args.server):
-        servers[name] = snapshot_server(ctx, name, args)
+        try:
+            servers[name] = snapshot_server(ctx, name, args)
+        except Exception as e:   # one server never costs the others their result
+            servers[name] = {"status": "error", "reason": "internal_error", "detail": type(e).__name__}
     for name in args.server or []:
         if name not in servers:
             servers[name] = {"status": "skipped", "reason": "not_approved", "detail": "unknown server name"}

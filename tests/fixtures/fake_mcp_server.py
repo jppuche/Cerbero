@@ -43,6 +43,7 @@ def parse_args():
     p.add_argument("--pid-file", help="where --ignore-eof writes the child's pid")
     p.add_argument("--huge", action="store_true", help="a tool description over the client's size cap")
     p.add_argument("--sentinel", help="touch this file at launch")
+    p.add_argument("--report", help="write the working directory and launch environment facts to this JSON file")
     p.add_argument("--ttl-vary", action="store_true")
     p.add_argument("--legacy-probe", default="-32601",
                    help="legacy answer to a request before initialize: an error code, or 'silent'")
@@ -190,6 +191,10 @@ class Server(object):
             if self.a.pid_file:
                 with open(self.a.pid_file, "w") as f:
                     f.write("%d %d" % (os.getpid(), child.pid))
+        if self.a.report:
+            with open(self.a.report, "w") as f:
+                json.dump({"cwd": os.getcwd(),
+                           "NoDefaultCurrentDirectoryInExePath": os.environ.get("NoDefaultCurrentDirectoryInExePath")}, f)
         for raw in sys.stdin.buffer:
             try:
                 msg = json.loads(raw.decode("utf-8"))

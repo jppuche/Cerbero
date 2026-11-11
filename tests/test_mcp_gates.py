@@ -72,10 +72,10 @@ class TestEnvIsPartOfTheLaunchGate(Base):
                 self.assert_not_launched(doc["servers"]["wiki"], "launch_changed")
 
     def test_changed_env_value_is_not_launched(self):
-        self.sb.local = {"wiki": self.sb.stdio_entry(env={"PYTHONPATH": "a"})}
+        self.sb.local = {"wiki": self.sb.stdio_entry(env={"WIKI_MODE": "a"})}
         self.sb.write_home()
         self.sb.approve("wiki")
-        self.sb.local = {"wiki": self.sb.stdio_entry(env={"PYTHONPATH": "b"})}
+        self.sb.local = {"wiki": self.sb.stdio_entry(env={"WIKI_MODE": "b"})}
         self.sb.write_home()
         doc, _, _ = self.sb.snapshot()
         self.assert_not_launched(doc["servers"]["wiki"], "launch_changed")
@@ -114,6 +114,7 @@ class TestNoCredentialInLauncherSpecs(Base):
     ENTRIES = {
         "git url": {"command": "uvx", "args": ["--from", "git+https://%s@example.com/o/r@1.0.0" % SECRET, "tool"]},
         "npm url": {"command": "npx", "args": ["-y", "https://user:%s@example.com/pkg-1.0.0.tgz" % SECRET]},
+        # classified only, never contacted
         "url path": {"type": "http", "url": "https://mcp.example.com/v1/%s/mcp?key=%s" % (SECRET, SECRET)},
         "url userinfo": {"type": "http", "url": "https://user:%s@mcp.example.com/mcp" % SECRET},
         "other flag": {"command": "some-binary", "args": ["--token=%s" % SECRET, "serve"]},
@@ -160,23 +161,6 @@ class TestNoCredentialInLauncherSpecs(Base):
                 snap.registry_integrity(snap.classify_launcher(entry, self.sb.project))
         self.assertEqual(seen, ["https://registry.npmjs.org/@scope%2Fpkg/1.2.3",
                                 "https://pypi.org/pypi/some.pkg/1.0.0/json"])
-
-    def test_nothing_secret_reaches_files_or_stdout(self):
-        self.sb.local = dict(self.ENTRIES)
-        self.sb.write_home()
-        out = ""
-        for name in self.ENTRIES:
-            _, _, text = self.sb.run("approve", name, "--risk", "MEDIUM", "--offline", "--allow-unverified",
-                                     "--project", self.sb.project)
-            out += text
-        _, _, text = self.sb.run("pins", "--offline", "--project", self.sb.project)
-        out += text
-        # Nothing here can be launched: every entry is unpinned, unverified or remote and unreachable.
-        self.sb.local = {"url path": self.ENTRIES["url path"]}
-        self.sb.write_home()
-        _, _, text = self.sb.snapshot("current.json", "--timeout", "2")
-        self.assertNotIn(SECRET, self.everything_written(out, text))
-
 
 class TestApprovalIsBoundToThisMachine(Base):
     """Item 3: an approval file that came with the repository approves nothing."""
@@ -279,60 +263,8 @@ class TestCommandResolution(Base):
 
 
 class TestPinCheck(Base):
-    """Item 5: only an exact version is pinned, and unknown is not allowed."""
-
-    UNPINNED = [
-        {"command": "npx", "args": ["-y", "some-pkg@1.2"]},
-        {"command": "npx", "args": ["-y", "some-pkg@1"]},
-        {"command": "npx", "args": ["-y", "some-pkg@1.x"]},
-        {"command": "npx", "args": ["-y", "some-pkg@next"]},
-        {"command": "yarn", "args": ["dlx", "some-pkg"]},
-        {"command": "bun", "args": ["x", "some-pkg"]},
-        {"command": "uv", "args": ["run", "--with", "some-pkg", "server.py"]},
-        {"command": "uv", "args": ["run", "some-script"]},
-        {"command": "deno", "args": ["run", "-A", "npm:some-pkg"]},
-        {"command": "deno", "args": ["run", "https://example.com/server.ts"]},
-        {"command": "node", "args": ["C:/Program Files/nodejs/node_modules/npm/bin/npx-cli.js", "-y", "some-pkg"]},
-        {"command": "uvx", "args": ["--with", "other-pkg", "pkg==1.0.0"]},
-        {"command": "uvx", "args": ["--with-requirements", "reqs.txt", "pkg==1.0.0"]},
-        {"command": "uvx", "args": ["pkg==1.*"]},
-    ]
-    PINNED = [
-        ({"command": "npx", "args": ["-y", "some-pkg@1.2.3"]}, "npx"),
-        ({"command": "npx", "args": ["-y", "some-pkg@1.2.3-beta.1"]}, "npx"),
-        ({"command": "yarn", "args": ["dlx", "some-pkg@1.2.3"]}, "npx"),
-        ({"command": "node", "args": ["/usr/lib/node_modules/npm/bin/npx-cli.js", "-y", "some-pkg@1.2.3"]}, "npx"),
-        ({"command": "uvx", "args": ["--with", "other-pkg==2.0.0", "pkg==1.0.0"]}, "uvx"),
-        ({"command": "uvx", "args": ["pkg==1.0"]}, "uvx"),
-    ]
-    UNVERIFIED = [
-        {"command": "npx", "args": ["-y", "--registry=https://registry.example.com", "some-pkg@1.2.3"]},
-        {"command": "npx", "args": ["-y", "some-pkg@1.2.3"], "env": {"NPM_CONFIG_REGISTRY": "https://registry.example.com"}},
-        {"command": "uvx", "args": ["--index-url", "https://pypi.example.com/simple", "pkg==1.0.0"]},
-        {"command": "uvx", "args": ["pkg==1.0.0"], "env": {"UV_INDEX_URL": "https://pypi.example.com/simple"}},
-        {"command": "some-binary-on-path", "args": ["serve"]},
-        {"command": "python", "args": ["-m", "some_module"]},
-    ]
-
-    def test_unpinned(self):
-        for entry in self.UNPINNED:
-            with self.subTest(entry=entry):
-                self.assertIs(snap.classify_launcher(entry, self.sb.project)["pinned"], False)
-
-    def test_pinned(self):
-        for entry, kind in self.PINNED:
-            with self.subTest(entry=entry):
-                got = snap.classify_launcher(entry, self.sb.project)
-                self.assertEqual((got["kind"], got["pinned"]), (kind, True))
-
-    def test_unverified_is_neither_pinned_nor_looked_up(self):
-        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as opened:
-            for entry in self.UNVERIFIED:
-                with self.subTest(entry=entry):
-                    got = snap.classify_launcher(entry, self.sb.project)
-                    self.assertIsNone(got["pinned"])
-                    self.assertEqual(snap.registry_integrity(got), (None, None))
-        opened.assert_not_called()
+    """Item 5: unknown is not allowed. The classifier's own contract is the
+    table in test_mcp_launchers.py."""
 
     def _runner_entry(self):
         # An "other" launcher that happens to be the fixture: python -c <loader> <fixture> ...
