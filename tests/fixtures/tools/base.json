@@ -1,0 +1,56 @@
+[
+  {
+    "name": "search_docs",
+    "title": "Search documents",
+    "description": "Search the wiki and return matching page titles.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {"type": "string", "description": "Words to look for."},
+        "mode": {"type": "string", "enum": ["title", "body"], "default": "title"},
+        "limit": {"type": "integer", "default": 10}
+      },
+      "required": ["query"]
+    },
+    "annotations": {"readOnlyHint": true}
+  },
+  {
+    "name": "read_page",
+    "description": "Return the text of one wiki page.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {"page_id": {"type": "string", "description": "Page identifier."}},
+      "required": ["page_id"]
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {"text": {"type": "string"}}
+    },
+    "annotations": {"readOnlyHint": true}
+  },
+  {
+    "name": "list_pages",
+    "description": "List page identifiers.",
+    "inputSchema": {"type": "object", "properties": {}}
+  },
+  {
+    "name": "page_history",
+    "description": "List the revisions of one page.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {"page_id": {"type": "string"}},
+      "required": ["page_id"]
+    }
+  },
+  {
+    "name": "delete_page",
+    "description": "Delete one wiki page.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {"page_id": {"type": "string"}},
+      "required": ["page_id"]
+    },
+    "annotations": {"readOnlyHint": false, "destructiveHint": true},
+    "_meta": {"anthropic/requiresUserInteraction": true}
+  }
+]
