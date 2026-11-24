@@ -17,9 +17,9 @@ import os
 import unicodedata
 from datetime import datetime, timezone
 
-SCANNER_VERSION = "1.3.0"
+SCANNER_VERSION = "1.3.1"
 
-# --- Suppression annotation detection (H-SEC-003) ---
+# --- Suppression annotation detection ---
 # Suppression annotations in scanned content are treated as evasion attempts.
 # The scanner evaluates UNTRUSTED content - self-suppression is a bypass vector.
 
@@ -245,7 +245,7 @@ def scan_zero_width_chars(text):
 
 
 def scan_tag_characters(text):
-    """Tier 1: Detect Unicode tag character sequences (C-SEC-003).
+    """Tier 1: Detect Unicode tag character sequences.
 
     Tag chars (U+E0000-E007F) have 100% ASR for instruction smuggling
     (Rehberger 2024, confirmed against Claude, Copilot, Cursor).
@@ -268,7 +268,7 @@ def scan_tag_characters(text):
 
 
 def scan_bidi_overrides(text):
-    """Tier 1: Detect bidirectional override characters (C-SEC-004)."""
+    """Tier 1: Detect bidirectional override characters."""
     findings = []
     bidi_names = {
         0x202A: "LRE", 0x202B: "RLE", 0x202C: "PDF", 0x202D: "LRO", 0x202E: "RLO",
@@ -311,7 +311,7 @@ def _decode_variation_selectors(text):
 
 
 def scan_variation_selectors(text):
-    """Tier 1: Detect Variation Selector clusters + Glassworm decode (C-SEC-003, S-SEC-013).
+    """Tier 1: Detect Variation Selector clusters + Glassworm decode.
 
     Glassworm campaign (Mar 2026, 400+ repos): VS codepoints encode arbitrary bytes.
     """
@@ -339,7 +339,7 @@ def scan_variation_selectors(text):
 
 
 def scan_sneaky_bits(text):
-    """Tier 1: Detect Sneaky Bits binary encoding (C-SEC-003).
+    """Tier 1: Detect Sneaky Bits binary encoding.
 
     U+2062 (invisible times) / U+2064 (invisible plus) used as 0/1 bits.
     Technique demonstrated by Rehberger (Mar 2025).
@@ -372,7 +372,7 @@ def scan_sneaky_bits(text):
 
 
 def _normalize_for_injection_scan(text):
-    """Normalize text for injection phrase detection (C-SEC-005).
+    """Normalize text for injection phrase detection.
 
     Strips ZW chars, applies NFKC, translates confusables.
     Used to catch obfuscated injection phrases.
@@ -665,7 +665,8 @@ def compute_verdict(findings):
 # REQUIRES_HUMAN_REVIEW is not currently emitted by compute_verdict()
 # above (its "2+ categories" branch escalates unconditionally, every
 # time, straight to REJECT) -- it is the skill-level verdict documented
-# in README's "Detection Tiers > Multi-scanner logic" section. Mapped
+# in the Cerbero README (github.com/jppuche/Cerbero), section
+# "Detection Tiers > Multi-scanner logic". Mapped
 # here defensively so the exit code stays correct if the scanner
 # itself ever starts distinguishing it from REJECT.
 VERDICT_EXIT_CODES = {
@@ -690,7 +691,7 @@ def run_scan(text, target_name):
     all_findings.extend(scan_injection_phrases(text))
     all_findings.extend(scan_base64_payloads(text))
     all_findings.extend(scan_zero_width_chars(text))
-    # Unicode attack detection (C-SEC-003/004/005, S-SEC-013)
+    # Unicode attack detection
     all_findings.extend(scan_tag_characters(text))
     all_findings.extend(scan_bidi_overrides(text))
     all_findings.extend(scan_variation_selectors(text))
@@ -732,7 +733,7 @@ def run_scan(text, target_name):
                 all_findings.append(finding)
                 seen.add(finding["check"])
 
-    # C-SEC-005: Also scan NORMALIZED text for obfuscated injection phrases
+    # Also scan NORMALIZED text for obfuscated injection phrases
     normalized = _normalize_for_injection_scan(text)
     if normalized != text:
         norm_injections = scan_injection_phrases(normalized)

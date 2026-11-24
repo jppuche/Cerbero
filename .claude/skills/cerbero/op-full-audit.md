@@ -83,7 +83,7 @@ $settings = @(".claude/settings.json", ".claude/settings.local.json", (Join-Path
 Select-String -Path $settings -Pattern "validate-prompt|pre-tool-security|mcp-audit|cerbero-scanner|validate-tool-output|untrusted-source-reminder" | ForEach-Object { "WIRED: $($_.Path): $($_.Line.Trim())" }
 ```
 
-A user-level install may be a deliberate subset (for example only the PostToolUse scanner and the reminder). Report missing scripts as MISSING, but do not flag a documented subset as CRITICAL.
+A user-level install may wire only some of the scripts on purpose. Report missing scripts as MISSING, but do not flag a documented subset as CRITICAL.
 
 ## Step 5b - Telemetry Check
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1] - 2026-11-24
+
+### Changed
+- Source comments no longer carry finding IDs and dates from internal reviews; the descriptive text and the known-limitation notes stay
+- `cerbero-scanner.py` points to this repository's README by URL for the multi-scanner logic, so the pointer resolves in copies that ship without the README
+- `op-full-audit.md`: the user-level subset example no longer names specific hooks
+- A test input path is neutral (`C:/work/project/...`)
+
 ## [1.3.0] - 2026-11-10
 
 ### Security

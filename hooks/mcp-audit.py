@@ -3,7 +3,7 @@
 Log directory: CERBERO_LOG_DIR if set (one shared log; each entry records its
 project), else <project>/.claude/security/ with <project> from _project_root().
 
-Known limitation (M-RES-001): No file locking on concurrent writes. The counter
+Known limitation: no file locking on concurrent writes. The counter
 read-increment-write has a theoretical TOCTOU race if CC fires parallel PreToolUse
 hooks. Impact: counter off by +-1 (used only for reminder threshold). Log append via
 open('a') is effectively atomic for entries < 4KB on POSIX/NTFS. Accepted risk.
