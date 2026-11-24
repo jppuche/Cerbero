@@ -3,7 +3,7 @@
 - Date: 2026-10-30
 - Scope: verify flow (`.claude/skills/cerbero/op-verify-existing.md`), baseline creation (`op-evaluate-mcp.md` Step 8, `setup-guide.md` A.6), public claims (`README.md`, `SKILL.md`), hooks.
 - Status: **implemented** on branch `feature/rug-pull-snapshot` (2026-11-10), not yet released. Approved by the maintainer on 2026-11-10 (section 7). Section 8 lists what the implementation re-verified and where it deviates from sections 3 to 5.
-- Paths: this document was written in a private development repository with a `Cerbero/` path prefix and at version 1.2.0. Paths below are mapped to this repository's root (`hooks/`, `tests/`, `.claude/skills/cerbero/`); the release that carries this change is the next minor after 1.3.0.
+- Paths: this document was written in a development repository with a `Cerbero/` path prefix and at version 1.2.0. Paths below are mapped to this repository's root (`hooks/`, `tests/`, `.claude/skills/cerbero/`); the release that carries this change is the next minor after 1.3.0.
 - Method: docs fetched as raw markdown with `curl -sL` on 2026-10-30 and read directly. Fetched content was treated as data; no embedded instructions found. No `claude mcp list` was run and no MCP server was started.
 
 Starting assumptions (verify before implementing):
@@ -312,7 +312,7 @@ The maintainer answered the ten questions of section 6. The design is approved f
 3. **Tripwire**: warn-only by default. `permissionDecision: "ask"` is opt-in through an environment variable.
 4. **Unpinned launchers**: `UNPINNED` is a SUSPICIOUS finding, `snapshot` skips the server without `--allow-unpinned`, and `op-evaluate-mcp` does not approve a server until its version is pinned.
 5. **`clientInfo`**: neutral (`cerbero-snapshot`). The cloaking gap is documented as a known limitation; Cerbero does not imitate Claude Code's identity.
-6. **Existing `mcp-approved.json` records**: none found on the maintainer's machine on 2026-11-10 (project and user `.claude/security/` folders). It is a new artifact, created in a one-time step the user confirms.
+6. **Existing `mcp-approved.json` records**: none found in the project and user `.claude/security/` folders checked on 2026-11-10. It is a new artifact, created in a one-time step the user confirms.
 7. **When `snapshot` runs**: manually, through `/cerbero verify`. No automatic `SessionStart` snapshot.
 8. **Tests**: shipped in the public repository, next to the existing `tests/`.
 9. **Minimum Claude Code version**: stated in `setup-guide.md` (v2.1.274 for `mcp_server`), after re-checking assumption A1 against the installed CLI.
@@ -326,7 +326,7 @@ Before implementing, re-verify section 1 against the current vendor pages and th
 
 ### 8.1 Re-verification of section 1
 
-Done on 2026-11-10 against the installed CLI (Claude Code 2.1.321, the build bundled with the desktop app; `claude` is not on PATH on the maintainer's machine) and the same vendor pages, fetched again as raw markdown. No `claude mcp list` was run and no MCP server was started for the verification.
+Done on 2026-11-10 against the installed CLI (Claude Code 2.1.321) and the same vendor pages, fetched again as raw markdown. No `claude mcp list` was run and no MCP server was started for the verification.
 
 | Fact | Result |
 |------|--------|
@@ -336,7 +336,7 @@ Done on 2026-11-10 against the installed CLI (Claude Code 2.1.321, the build bun
 | F6 to F9 | Hold. `mcp_server` still requires v2.1.274; "Claude never sees stderr from a hook that exits 0" is unchanged, and the hooks page now recommends `systemMessage` on stdout for a `PreToolUse` warning. |
 | F10 to F12 | Not re-read in full; `mcpServerStatus()` and `McpServerStatus` are still documented. Nothing here depends on them (B4 was not built). |
 | F13 to F18, F20 | Hold. New detail used by the implementation: `projects["<path>"].hasTrustDialogAccepted` in `~/.claude.json` is the documented workspace-trust flag. |
-| F19 | Holds on the maintainer's machine, with one addition: the same project can appear under both `C:/...` and `c:/...` keys, so keys are matched case-insensitively on Windows. |
+| F19 | Holds, with one addition: the same project can appear under both `C:/...` and `c:/...` keys, so keys are matched case-insensitively on Windows. |
 | F21 to F26 | Hold. Details used by the implementation: the modern error codes are `-32020` (HeaderMismatch), `-32021` (MissingRequiredClientCapability) and `-32022` (UnsupportedProtocolVersion); a modern HTTP server answers an unknown method with `404` and `-32601`; `serverInfo` of a modern server is in `_meta["io.modelcontextprotocol/serverInfo"]` of the `server/discover` result. |
 
 Assumption A1 (docs reflect the installed CLI) holds for 2.1.321. A2 was not measured.
