@@ -68,10 +68,10 @@ CONFUSABLES = str.maketrans({
     "С": "C", "У": "Y", "Х": "X", "І": "I",
     "К": "K", "М": "M", "Н": "N", "Т": "T",
     "В": "V",
-    # Greek lowercase (M-SEC-002)
+    # Greek lowercase
     "α": "a", "ο": "o", "ε": "e", "ι": "i",
     "ρ": "p",
-    # Greek uppercase (M-SEC-002)
+    # Greek uppercase
     "Α": "A", "Β": "B", "Ε": "E", "Η": "H",
     "Ι": "I", "Κ": "K", "Μ": "M", "Ν": "N",
     "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y",
@@ -231,7 +231,7 @@ SNEAKY_BITS_PATTERN = re.compile(r"[⁢⁤]{3,}")
 # Comment extraction - scan for injection hidden in comments
 # ---------------------------------------------------------------------------
 
-# Known limitation (L-SEC-001): Non-greedy match means nested comments like
+# Known limitation: non-greedy match means nested comments like
 # <!-- <!-- injection --> --> extract up to the first -->. The inner injection
 # text IS captured (with extra <!-- prefix as noise), so injection patterns
 # still match against the extracted content. Accepted edge case.

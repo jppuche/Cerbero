@@ -39,7 +39,7 @@ DANGEROUS_PATTERNS = [
     (_PS_DOWNLOAD + r".*\|\s*(iex|invoke-expression)\b", "PowerShell remote execution"),
     (r"\b(iex|invoke-expression)\s*[\(\$]", "PowerShell Invoke-Expression"),
     (r"\bstart-process\b.*-windowstyle\s+hidden\b", "hidden process execution"),
-    # C-SEC-001: eval/base64/source bypass patterns
+    # eval/base64/source bypass patterns
     (r"(?:^|[;&|]\s*)eval\s+\S", "eval command execution"),
     (r"\beval\$", "eval with subshell"),
     (r"\$\(.*base64\s+(-d|--decode)", "base64 decode in subshell"),

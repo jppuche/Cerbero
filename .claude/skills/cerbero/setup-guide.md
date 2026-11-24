@@ -309,7 +309,7 @@ python .claude/hooks/cerbero-mcp-snapshot.py accept --current "$env:TEMP/mcp-cur
 
 `accept` writes `mcp-inventory.json`, `mcp-baseline.sha256` and `baseline-date.txt` in `.claude/security/`, after moving any previous ones to `.claude/security/history/`.
 
-**Upgrading from 1.3.0 or earlier.** The old `mcp-inventory.json` was the output of `claude mcp list` and holds no tool definitions. `/cerbero verify` reports `BASELINE MIGRATION REQUIRED` and, when you confirm, `accept` moves the old files to `history/<timestamp>-legacy/` and writes a new baseline. The new baseline records the servers as they are today: if one had already changed, the change is now part of the baseline, so re-evaluate HIGH and CRITICAL servers first.
+**Upgrading from 1.3.1 or earlier.** The old `mcp-inventory.json` was the output of `claude mcp list` and holds no tool definitions. `/cerbero verify` reports `BASELINE MIGRATION REQUIRED` and, when you confirm, `accept` moves the old files to `history/<timestamp>-legacy/` and writes a new baseline. The new baseline records the servers as they are today: if one had already changed, the change is now part of the baseline, so re-evaluate HIGH and CRITICAL servers first.
 
 **`mcp-approved.json` is not shared by committing it.** It is your approval, on your machine. A repository that ships both a `.mcp.json` and an approval record is asking you to run its server: such a record is skipped as `approval_not_local`, and a `.mcp.json` server also needs the folder to have passed the trust dialog.
 

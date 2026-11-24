@@ -2,7 +2,7 @@
 
 ## [Unreleased] - planned as 1.4.0
 
-Rug pull detection redesign (design: `docs/design/rug-pull-snapshot.md`). The four version markers stay at 1.3.0 until release. Not yet exercised against a real MCP server: fixtures only (design sec 8.3).
+Rug pull detection redesign (design: `docs/design/rug-pull-snapshot.md`). The four version markers stay at 1.3.1 until release. Not yet exercised against a real MCP server: fixtures only (design sec 8.3).
 
 ### Fixed
 - **The rug pull baseline never held tool definitions.** `/cerbero verify`, `op-evaluate-mcp` Step 8 and `setup-guide.md` A.6 built it with `claude mcp list --json`. That flag does not exist, and the command's output is server health, which changes with the network and contains no tool description. Every call to it is removed
@@ -26,6 +26,13 @@ Rug pull detection redesign (design: `docs/design/rug-pull-snapshot.md`). The fo
 ### Upgrading
 - A baseline from 1.3.0 or earlier cannot be migrated: it holds no tool definitions. `/cerbero verify` reports `BASELINE MIGRATION REQUIRED`; on your confirmation `accept` moves the old files to `history/<timestamp>-legacy/` (nothing is deleted) and writes a new baseline. That baseline is a new trust-on-first-use point: re-evaluate HIGH and CRITICAL servers first
 - Copy `hooks/cerbero-mcp-snapshot.py` next to the other scripts, pin each server to an exact version, and create the approval records once (`setup-guide.md` A.6)
+## [1.3.1] - 2026-11-24
+
+### Changed
+- Source comments no longer carry finding IDs and dates from internal reviews; the descriptive text and the known-limitation notes stay
+- `cerbero-scanner.py` points to this repository's README by URL for the multi-scanner logic, so the pointer resolves in copies that ship without the README
+- `op-full-audit.md`: the user-level subset example no longer names specific hooks
+- A test input path is neutral (`C:/work/project/...`)
 
 ## [1.3.0] - 2026-11-10
 

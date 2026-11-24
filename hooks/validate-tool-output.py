@@ -1,8 +1,5 @@
 """Cerbero hook: PostToolUse - scan external tool outputs for indirect prompt injection.
 
-Closes Issue #2 from red team review (2026-03-10).
-Unicode remediation: C-SEC-001, C-SEC-002, W-SEC-009 (2026-03-31).
-
 Scans WebFetch, WebSearch and MCP tool outputs for format injection tags, conversation
 splicing, base64-obfuscated payloads, and invisible Unicode attacks (tag
 characters, variation selectors, bidi overrides, sneaky bits).
@@ -37,12 +34,12 @@ CONVERSATION_SPLICE = re.compile(
 BASE64_PATTERN = re.compile(r"(?<!\w)[A-Za-z0-9+/]{20,}={0,2}(?!\w)")
 BASE64_MAX_DEPTH = 3
 
-# Truncation guard (H-SEC-002: increased from 50KB to 200KB)
+# Truncation guard (200KB; was 50KB)
 MAX_SCAN_BYTES = 200_000
 TAIL_SCAN_BYTES = 10_000
 
 # ---------------------------------------------------------------------------
-# Unicode normalization (synced from validate-prompt.py - C-SEC-001/002)
+# Unicode normalization (synced from validate-prompt.py)
 # ---------------------------------------------------------------------------
 
 # Zero-width / invisible characters - stripped before pattern matching
@@ -267,7 +264,7 @@ def main():
     if not text or len(text.strip()) < 10:
         sys.exit(0)
 
-    # H-SEC-002: scan head + sampled middle + tail to close scan gap (C-4)
+    # Scan head + sampled middle + tail to close the scan gap
     if len(text) > MAX_SCAN_BYTES:
         head = text[:MAX_SCAN_BYTES]
         tail = text[-TAIL_SCAN_BYTES:]
@@ -294,7 +291,7 @@ def main():
     # --- Unicode attack detection on RAW text (before normalization) ---
     findings.extend(_check_unicode_attacks(text))
 
-    # --- Normalize text for pattern matching (C-SEC-001/002) ---
+    # --- Normalize text for pattern matching ---
     normalized = _normalize_text(text)
 
     # --- Format injection + splicing on NORMALIZED text ---

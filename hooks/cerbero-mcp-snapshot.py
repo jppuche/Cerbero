@@ -62,7 +62,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-TOOL_VERSION = "1.3.0"
+TOOL_VERSION = "1.3.1"
 FORMAT = "cerbero-mcp-snapshot/1"
 CLIENT_NAME = "cerbero-snapshot"
 MODERN_VERSION = "2026-07-28"       # first revision with per-request metadata
